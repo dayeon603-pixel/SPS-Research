@@ -1,4 +1,3 @@
-[README_NeurIPS_style.md](https://github.com/user-attachments/files/26450449/README_NeurIPS_style.md)
 Structured Perturbation Stability (SPS)
 
 Measuring Semantic Invariance in Transformer Architectures
