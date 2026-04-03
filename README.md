@@ -54,7 +54,7 @@ Differential Form
 T_α(x) = x + αδ(x)
 
 limsup_{α→0}
-||f_θ(T_α x) − f_θ(x)|| / ||T_α x − x||
+||f_θ(T_α x) − f_θ(x)|| / ||T_α x − x||**
 =
 sup_{||v||=1, v ∈ A_x} ||J_fθ(x)v||
 
