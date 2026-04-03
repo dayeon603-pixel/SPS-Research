@@ -1,4 +1,5 @@
-# Structured Perturbation Stability (SPS)
+<p align="center">
+  # Structured Perturbation Stability (SPS)
 
 <p align="center">
   <strong>An Operator-Restricted Framework for Measuring Semantic Invariance in Transformer Architectures</strong>
