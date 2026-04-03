@@ -247,7 +247,8 @@ Planned next:
 
 ## Citation
 
-If you reference this work, cite the paper in `paper/SPS_paper.pdf`.
+If you want to review this work, see the updated abstract/introduction in the `/Structured_Perturbation_Stability__An_Operator_Restricted_Framework_for_Measuring_Semantic_Invariance_in_Transformer_Architectures.pdf
+`.
 
 ```bibtex
 @article{kang2026sps,
