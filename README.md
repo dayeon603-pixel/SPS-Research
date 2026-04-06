@@ -34,11 +34,24 @@ The central question SPS answers: **does the model ignore what it should ignore?
 
 ### Formal Assumptions
 
-> **A1 (Fréchet Differentiability):** $f_\theta$ is Fréchet differentiable on $\mathrm{supp}(\mathcal{D})$.  
-> **A2 (Transformation Compactness):** The normalized perturbation direction set $A_x^{(\varepsilon)}$ is compact in $\mathbb{S}^{d-1}$ for each $x, \varepsilon$.  
-> **A3 (Measurability):** $x \mapsto \mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta; x)$ is $\mathcal{D}$-measurable.  
-> **A4 (Integrability):** $\mathbb{E}_{x \sim \mathcal{D}}[\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta; x)] < \infty$.  
-> **A5 (Family Axioms):** $\mathcal{T}$ contains the identity, is semantically preserving, and is closed under composition.
+**A1 (Fréchet Differentiability).** $f_\theta$ is Fréchet differentiable at every $x \in \mathrm{supp}(\mathcal{D})$.
+
+**A2 (Transformation Compactness).** For each $x$ and $\varepsilon > 0$, the normalized direction set $A_x^{(\varepsilon)}$ is compact in $\mathbb{S}^{d-1}$.
+
+**A3 (Measurability).** The map
+
+$$x \;\mapsto\; \mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta;\, x)$$
+
+is $\mathcal{D}$-measurable for every $\varepsilon > 0$.
+
+**A4 (Integrability).**
+
+$$\mathbb{E}_{x \sim \mathcal{D}}\bigl[\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta;\, x)\bigr] \;<\; \infty$$
+
+**A5 (Family Axioms).** The admissible family $\mathcal{T}$ satisfies:
+1. $\mathrm{Id} \in \mathcal{T}$ with $c(\mathrm{Id},\, x) = 0$
+2. Every $T \in \mathcal{T}$ preserves semantic content
+3. $T_1, T_2 \in \mathcal{T} \;\Rightarrow\; T_2 \circ T_1 \in \mathcal{T}$
 
 ### Definition 1 — Structured Local Sensitivity
 
