@@ -1,165 +1,76 @@
-# Research Process — Structured Perturbation Stability (SPS)
+# Research Process — SPS
 
-This document tracks the full thinking process behind this project, including failed approaches, design decisions, and unresolved questions. The goal is to make the development process transparent and reproducible.
-
-**Paper:** Kang, Dayeon. "Structured Perturbation Stability: An Operator-Restricted Framework for Measuring Semantic Invariance in Transformer Architectures." *1st AI Agent Journal*, 2026.
+not meant to be polished. just tracking how this actually developed so i don't forget and so it's reproducible if anyone (including future me) needs to redo any of this.
 
 ---
 
-## 1. Initial Motivation
+## where this started
 
-The project started from a single uncomfortable observation:
+i kept noticing something weird when running synonym substitution experiments — accuracy stayed basically the same but the [CLS] embeddings were all over the place. like sometimes cosine similarity between original and paraphrased would drop to like 0.55 and the model would still get the answer right. at first i thought maybe cosine similarity was just a bad metric. but then i looked at the actual embedding vectors and they were genuinely different. the model was arriving at the same prediction through completely different internal paths.
 
-> Large language models maintain high task accuracy even when their internal representations become unstable under small, semantically neutral perturbations.
+that's when i got suspicious. the interpretability stuff i'd been reading (Jacovi & Goldberg, some of the probing work) all basically uses accuracy as a stand-in for understanding. but that assumption seemed really shaky based on what i was seeing.
 
-The standard interpretability literature treats accuracy as a proxy for model understanding. If a model gets the right answer, it must have learned the right representation — or so the assumption goes.
-
-I became suspicious of this after noticing that models can recover identical outputs from meaningfully different internal states, and fail on paraphrases that preserve all semantic content. Existing metrics (accuracy, F1, embedding cosine similarity) had no principled way to separate these cases.
-
-The question became: **can we define a metric that measures semantic invariance in representation space, independent of task performance?**
+the core question i kept coming back to: can a model be "right for the wrong reasons" in a way we can actually measure? and can we measure it without just doing more accuracy tests?
 
 ---
 
-## 2. Early Hypotheses
+## early ideas that didn't work
 
-Starting assumptions (all later revised or rejected):
+first instinct was just to throw gaussian noise at embeddings and see what happens. seemed reasonable at the time. result: outputs were super stable. i wrote in my notes that the model was "robust" and almost moved on. thank god i didn't.
 
-- Model accuracy reflects stable internal representations
-- Small input perturbations should produce small, consistent output changes
-- Existing robustness benchmarks (AdvGLUE, CheckList) measure what we care about
-- Cosine similarity between representations is a sufficient stability proxy
+the problem — which took me embarrassingly long to see — is that output stability under random noise is almost entirely a function of the softmax being saturated at high confidence. it has nothing to do with whether the representation makes sense. i was measuring the wrong layer.
 
-All four turned out to be wrong in ways that directly shaped the framework.
+tried output-only consistency next. measure $d_Y(f(x), f(Tx))$ directly across a bunch of paraphrases. this felt more principled but had the same problem in disguise. a model that just memorized the training data would score perfectly stable even if it totally falls apart on novel paraphrases. the metric was masking exactly what i wanted to detect.
 
----
-
-## 3. Failed Approaches
-
-See `FAILURES.md` for full detail. Summary:
-
-### 3.1 Direct Random Perturbation Testing
-
-Applied Gaussian noise to token embeddings, observed output consistency. Problems:
-- No semantic grounding — noise disrupts meaning and form simultaneously
-- Could not distinguish stability under paraphrase from stability under nonsense
-
-### 3.2 Output-Only Consistency Metrics
-
-Measured $d_\mathcal{Y}(f(x), f(Tx))$ without constraining $T$. Problems:
-- Models were "stable" under arbitrary corruption because of output-layer saturation
-- Performance ≠ semantic stability. A model can score $\mathrm{SPS} \approx 0$ and still get 90% accuracy
-
-### 3.3 Existing Robustness Benchmarks
-
-AdvGLUE and similar datasets test adversarial stability, not semantic invariance. They optimize for attacks, not for a neutral characterization of representation geometry.
+also looked at AdvGLUE and CheckList. those are testing adversarial robustness — they're optimizing for attacks. that's a different question. i want neutral characterization, not worst-case. those benchmarks weren't going to give me what i needed.
 
 ---
 
-## 4. Key Turning Point
+## the key realization
 
-The breakthrough was recognising that perturbation families need to be **semantically constrained**:
+around day 15 i wrote this in my notes: *"not all perturbations are equal — only structure-preserving ones should count"*
 
-> Not all input changes are equal. Only structure-preserving transformations should count toward a stability measurement.
+that sounds obvious in retrospect but it took two weeks of failed experiments to get there. the issue with random noise and arbitrary transformations is that they're semantically destructive. if i swap "dog" for "photosynthesis" the model should be sensitive to that. the question is whether it's sensitive when i swap "dog" for "canine."
 
-This led to the concept of an **admissible transformation family** $\mathcal{T}$, where every $T \in \mathcal{T}$ must:
-- Preserve semantic content of the input
-- Have bounded transformation magnitude $c(T, x) \leq \varepsilon$
-- Include the identity (zero-perturbation baseline)
-
-Once $\mathcal{T}$ is constrained, sensitivity becomes a meaningful geometric quantity: how much does the model output move when the input moves in a semantically neutral direction?
+so the framework needed a constrained transformation family $\mathcal{T}$ — only transformations that preserve semantic content get to participate in the stability measurement. this immediately raised the hard question of how you define "semantic preservation" formally without circularity, but at least it pointed in a direction.
 
 ---
 
-## 5. Core Theoretical Insight
+## formalizing it
 
-The central result is a clean decoupling:
+the sensitivity functional came together pretty naturally once the constrained family idea was in place:
 
-> A model can achieve high task accuracy while having low SPS. Conversely, a model can have high SPS and still make errors. **SPS and accuracy measure orthogonal properties.**
+$$\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta; x) := \sup_{T \in \mathcal{T},\, c(T,x) \leq \varepsilon} \frac{d_\mathcal{Y}(f_\theta(Tx), f_\theta(x))}{c(T, x)}$$
 
-Formally, the sensitivity functional at point $x$ is:
+aggregated over the data distribution via exp(-E[Sens]) to get a bounded score in (0,1].
 
-$$\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta;\, x) := \sup_{\substack{T \in \mathcal{T} \\ 0 < c(T,x) \leq \varepsilon}} \frac{d_\mathcal{Y}(f_\theta(Tx),\, f_\theta(x))}{c(T, x)}$$
+i chose the exponential because: (1) maps [0,∞) to (0,1], interpretable. (2) SPS=1 is perfect invariance, makes sense. (3) i had an information-theoretic intuition that i haven't fully pinned down yet — it feels like it should connect to entropy of the sensitivity distribution but i haven't written that up properly.
 
-And the global SPS score aggregates this over the data distribution:
-
-$$\mathrm{SPS}_\varepsilon(f_\theta) := \exp\!\left(-\mathbb{E}_{x \sim \mathcal{D}}\bigl[\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta;\, x)\bigr]\right) \in (0, 1]$$
-
-The exponential map gives an interpretable bounded score: SPS = 1 means perfect invariance, SPS → 0 means the model is highly sensitive to structure-preserving changes.
+for semantic preservation in $\mathcal{T}$ i went with an operational definition: transformations drawn from curated families (synonym substitution, controlled paraphrase, back-translation). this is less elegant than an axiomatic definition but it's tractable. human annotation is too expensive. using an NLI model to check entailment feels circular since we'd be evaluating the model using another model's judgments.
 
 ---
 
-## 6. Operator-Restricted Norm and Spectral Gap
+## the jacobian connection
 
-A key extension connects SPS to Jacobian geometry. For a fixed input $x$, let $A_x \subseteq \mathbb{S}^{d-1}$ be the set of directions that semantic transformations generate. The **$A_x$-restricted operator norm** is:
+connecting SPS to the Jacobian was the thing that made the theory feel complete to me. in the $\varepsilon \to 0$ limit, sensitivity is just the directional derivative along the perturbation direction — which is a JVP. and if you take the sup over all directions in $A_x$, you get the $A_x$-restricted operator norm of $J_f(x)$.
 
-$$\|J_{f_\theta}(x)\|_{A_x} := \sup_{v \in A_x} \|J_{f_\theta}(x)\, v\|$$
+this led to the spectral gap idea: a model with high spectral gap has its most sensitive directions geometrically orthogonal to the semantic manifold. that's a desirable property. and it's something no existing metric captures.
 
-This is smaller than the full spectral norm $\sigma_{\max}(J_{f_\theta}(x))$ whenever semantic directions are not aligned with the top singular vector — which they should not be in a well-trained model.
-
-The **semantic spectral gap** then measures how much the model compresses semantic directions relative to arbitrary directions:
-
-$$\bar{\gamma}(f_\theta, \mathcal{T};\, x) := 1 - \frac{\|J_{f_\theta}(x)\|_{A_x}}{\sigma_{\max}(J_{f_\theta}(x))} \in [0, 1]$$
-
-A large spectral gap means the model's most sensitive directions are geometrically orthogonal to the semantic manifold — a desirable property that existing metrics do not capture.
+(there was a significant error in my original Theorem 2 here — see FAILURES.md. the LHS and RHS weren't equivalent. fixed in the corrected version.)
 
 ---
 
-## 7. Iterative Development
+## open questions i haven't resolved
 
-### Version 1 — Sensitivity Functional Only
-- Defined $\mathrm{Sens}_{\mathcal{T},\varepsilon}$ for a fixed family of synonym substitutions
-- No operator norm connection
-- Could not distinguish layer-wise contributions
-
-### Version 2 — Jacobian Connection
-- Introduced Theorem 2 (directional sensitivity = Jacobian-vector product)
-- **Error found:** original Theorem 2 set single-direction LHS equal to multi-direction sup RHS — not equivalent
-- Corrected to two-part theorem: (i) single direction via JVP, (ii) $\varepsilon \to 0$ limit gives restricted operator norm
-
-### Version 3 — Spectral Gap and Full Definitions
-- Added Definitions 5–8: spectral gap, empirical SPS, layer-wise SPS, relative SPS (rSPS)
-- Added Assumptions A4 (integrability) and A5 (family axioms) — Proposition 1 was unproven without A4
-- Added Theorem 4 fix: missing constraint $c(T_2, T_1 x) \leq \varepsilon$ added as explicit hypothesis
-- Fixed notation: $\varepsilon$ subscript restored to $\mathrm{Sens}$ throughout
-
-### Version 4 — Code and Experiments
-- Implemented `StructuredSensitivityEstimator` using `torch.autograd.functional.jvp`
-- Implemented `SpectralGapResult` with randomized power iteration probing
-- Tested on RoBERTa-base with synonym substitution ($T_{\mathrm{syn}}$) and embedding perturbation ($T_{\mathrm{emb}}$) families
-- Relative SPS (rSPS) defined: ratio of semantic SPS to arbitrary-direction SPS
-- Layer-wise profiler reveals which transformer layers are semantically most sensitive
+- does SPS scale predictably with model size? i'd guess there's some phase transition but i have nothing empirical yet
+- can you directly optimize SPS as a regularizer during training? adding $\lambda \cdot \mathrm{Sens}$ to the loss seems natural but i haven't tested if it causes representation collapse
+- multimodal extension: what does $\mathcal{T}$ look like for image-text pairs? the operational definition is harder to nail down
+- the composition bound in Theorem 3 ($\mathrm{SPS}(\mathcal{T}_2 \circ \mathcal{T}_1) \leq \min(\mathrm{SPS}_1, \mathrm{SPS}_2)$) is probably loose. tighter characterization would be good but i don't know what it looks like yet
 
 ---
 
-## 8. Theoretical Results Summary
+## what i'd do next with more time
 
-| Result | Statement |
-|---|---|
-| Proposition 1 | $\mathrm{SPS}_\varepsilon \in (0, 1]$ under A3, A4 |
-| Theorem 1 | Larger $\mathcal{T}$ → lower SPS (monotonicity) |
-| Theorem 2 (corrected) | (i) Pointwise sens. = JVP norm; (ii) $\varepsilon \to 0$ limit = restricted op. norm |
-| Theorem 3 | Composition of transformations: $\mathrm{SPS}(\mathcal{T}_2 \circ \mathcal{T}_1) \leq \min(\mathrm{SPS}(\mathcal{T}_1), \mathrm{SPS}(\mathcal{T}_2))$ |
-| Theorem 4 | Triangle inequality under chained transformations (requires $c(T_2, T_1 x) \leq \varepsilon$) |
-| Theorem 5 | SPS lower-bounds worst-case output perturbation magnitude |
-| Corollary 1 | $\mathrm{rSPS} \in (0, 1]$; rSPS = 1 iff restricted norm = full spectral norm |
-| Proposition 2 | Spectral gap $\bar{\gamma} \geq 1 - \mathrm{rSPS}^{-1}$ under Lipschitz regularity |
+run the full empirical comparison — RoBERTa vs BERT vs DeBERTa vs GPT-2 on the same $\mathcal{T}$ families. adversarial SPS (construct $\mathcal{T}$ to maximize sensitivity while preserving semantics) would be interesting. geometric visualization of $A_x$ vs. top singular vectors of $J_f(x)$. SPS on CLIP/LLaVA.
 
----
-
-## 9. Open Questions
-
-- **Scaling:** How does SPS behave as model size scales? Is there a phase transition at a certain parameter count?
-- **Training signal:** Can SPS be directly optimised as a regularisation objective without collapsing representations?
-- **Multimodal extension:** How to define admissible families $\mathcal{T}$ over image-text pairs?
-- **Composition stability:** Theorem 3 gives an upper bound on composed SPS but the bound may be loose — tighter characterisation needed
-- **Calibration:** Is rSPS a reliable diagnostic across architectures, or is it architecture-dependent?
-
----
-
-## 10. What Comes Next
-
-- Empirical SPS comparison across RoBERTa, BERT, DeBERTa, GPT-2 on the same transformation families
-- Adversarial SPS: construct $\mathcal{T}$ families specifically designed to maximise sensitivity while preserving semantics (adversarial paraphrase generation)
-- Geometric visualisation of $A_x$ directions vs. top singular vectors of $J_{f_\theta}(x)$
-- Multimodal SPS applied to vision-language models (CLIP, LLaVA)
-- SPS as a fine-tuning regulariser: add $\lambda \cdot \mathrm{Sens}_{\mathcal{T},\varepsilon}$ to the training loss
+none of this is started yet.

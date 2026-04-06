@@ -1,216 +1,217 @@
-# Development Log — SPS
+# Dev Log — SPS
 
-A chronological record of experiments, decisions, and observations. Entries are numbered by research day (approximate, relative to project start).
-
----
-
-## Day 1–3 — Problem Scoping
-
-Noticed that models on GLUE benchmarks maintained high accuracy after synonym substitution, but cosine similarity between original and substituted representations varied widely — sometimes dropping below 0.6.
-
-**Question:** Is this a problem with cosine similarity as a metric, or with the representations themselves?
-
-Started reading: Jacovi & Goldberg (2020) on faithfulness, Wallace et al. (2019) on NLP attacks, Sinha et al. (2021) on syntactic robustness.
-
-None of these exactly addressed the question. They measure vulnerability to adversarial input, not semantic invariance of representations.
+rough notes. not cleaned up.
 
 ---
 
-## Day 5 — First Experiment
+**day 1–3**
 
-Applied random Gaussian noise ($\sigma = 0.01$) to RoBERTa-base embeddings. Measured output consistency (KL divergence between original and perturbed softmax outputs).
+started reading around the robustness/interpretability intersection. Jacovi & Goldberg on faithfulness, Wallace et al. on NLP attacks, Sinha et al. on syntactic probing. none of them quite address what i'm interested in — they're all testing adversarial vulnerability or probing for specific features. i want something more like: does this model's representation of "the dog is big" actually agree with its representation of "the large canine" in any meaningful geometric sense?
 
-**Result:** Outputs were highly stable under noise. Interpreted this as "model is robust."
-
-**Retrospective:** Wrong interpretation. Output stability under noise is a function of the output layer's saturation, not representation quality. The experiment was measuring the wrong thing.
+not sure yet how to formalize that. just reading for now.
 
 ---
 
-## Day 8 — Synonym Substitution Test
+**day 5**
 
-Replaced tokens with WordNet synonyms (single substitution, random). Measured accuracy drop and cosine similarity between [CLS] representations.
+first actual experiment. added gaussian noise (σ=0.01) to roberta-base token embeddings, measured KL divergence between original and perturbed output distributions. outputs were basically unchanged.
 
-**Result:** Accuracy barely changed. Cosine similarity dropped to 0.55–0.65 on average.
+wrote in my notes: "model is robust to noise."
 
-**Observation:** The model produces the same answer via very different internal paths. This is the first clear signal that accuracy and representation stability are decoupled.
-
----
-
-## Day 12 — Formal Problem Statement
-
-Wrote the first draft of the sensitivity functional:
-
-$$S(f, x, T) = \frac{d_\mathcal{Y}(f(Tx), f(x))}{c(T, x)}$$
-
-Issues immediately apparent:
-- What is $d_\mathcal{Y}$? Output-space metric is not uniquely defined for classification
-- $c(T, x)$ normalises by transformation magnitude, but magnitude is not well-defined for discrete token substitutions
-- Taking the sup over arbitrary $T$ gives a measure that is dominated by pathological transformations
+wrong. spent the next few days thinking this meant something. it doesn't. i was measuring softmax saturation, not representation geometry. moving on.
 
 ---
 
-## Day 15 — Realisation: Need a Constrained Transformation Family
+**day 8**
 
-Recognised that the problem with Day 12's formulation is that there are no constraints on $T$. If $T$ can do anything, the sup is dominated by transformations that are semantically destructive.
+tried synonym substitution — replaced random tokens with wordnet synonyms, single substitution per sentence. looked at [CLS] cosine similarity and accuracy.
 
-Key insight: the transformation family must be **semantically constrained**. Only perturbations that preserve semantic content should enter the stability calculation.
+accuracy: barely moves. cosine sim: drops to 0.55–0.65 on average across the test set.
 
-Started drafting Definition 2 (admissible transformation family). First version required:
-- Identity in $\mathcal{T}$
-- Bounded magnitude $c(T,x) \leq \varepsilon$
-- Some notion of semantic preservation (informal at this stage)
+this is the observation that actually matters. same prediction, completely different internal representation. the model is right but for... what reason exactly? you can't tell from the output. this is the thing worth formalizing.
 
 ---
 
-## Day 18 — Formalising Semantic Preservation
+**day 12**
 
-The informal "semantic preservation" requirement in A5 needed a formal definition.
+tried to write the sensitivity functional. first draft:
 
-Options considered:
-1. Human annotation (expensive, not scalable)
-2. Entailment checking via NLI model (circular — we are trying to evaluate the model)
-3. Operational definition: transformations drawn from a curated family (synonym swap, back-translation, controlled paraphrase)
+$$S(f, x, T) = \frac{d_Y(f(Tx), f(x))}{c(T, x)}$$
 
-Chose option 3 as the primary approach with option 2 as a secondary validation tool. This means $\mathcal{T}$ is defined operationally, not axiomatically, which limits universality but enables tractable computation.
+immediately ran into three problems:
+- what even is $d_Y$ for classification? KL? total variation? not obvious.
+- $c(T, x)$ for synonym substitution — what's the "magnitude" of a discrete token swap? no natural definition.
+- if T is unconstrained, the sup is dominated by adversarial / semantically destructive transformations. that's not what i want.
 
-Added A5 formally with three axioms: Identity, Semantic preservation (operational), Measurability.
+wrote "needs constraints on T" at the top of the page and stopped. needs more thought.
 
 ---
 
-## Day 22 — First Complete Definition of SPS
+**day 15**
 
-Wrote:
+ok i think i see it. the problem is that i've been treating all transformations equally. but replacing "dog" with "photosynthesis" is not the same kind of perturbation as replacing "dog" with "canine." the first destroys meaning. the second preserves it. a stability metric that can't tell these apart is useless.
+
+so: the transformation family needs to be *semantically constrained*. only transformations that preserve meaning should count. call this an admissible family $\mathcal{T}$.
+
+first draft of A5 (family axioms) written today. pretty rough — just: identity in T, bounded magnitude, semantic preservation (undefined). will formalize later.
+
+---
+
+**day 18**
+
+how do you define "semantic preservation" without circularity?
+
+options i wrote down:
+1. human annotation — too expensive, not going to scale
+2. NLI model checking entailment — circular, we're evaluating a model using another model
+3. operational definition — just curate a family of known-semantic-preserving transformations (synonym swap, back-translation, controlled paraphrase) and call that T
+
+going with 3. it's less elegant but it's the only tractable one. this means T is operationally defined, not axiomatically, which limits universality. that's a real limitation. acknowledged in the paper.
+
+added A5 properly with three sub-axioms. also realized i needed A3 (measurability) separately from A5 and A4 (integrability) — the proposition 1 proof doesn't work without them. will add those formally.
+
+---
+
+**day 22**
+
+wrote the full SPS definition:
+
 $$\mathrm{SPS}_\varepsilon(f_\theta) := \exp\!\left(-\mathbb{E}_{x \sim \mathcal{D}}[\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta; x)]\right)$$
 
-Why exponential? 
-- Maps $[0, \infty) \to (0, 1]$, giving an interpretable bounded score
-- Connects to information-theoretic intuitions (SPS ≈ 1 − entropy of sensitivity distribution)
-- Makes SPS multiplicative under composition (if compositions were independent, which they are not in general — see Theorem 3)
+the exponential felt right — maps to (0,1], interpretable, SPS=1 is perfect invariance. also some vague intuition about entropy that i haven't formalized.
+
+one thing: this makes SPS "multiplicative under composition" in some loose sense — if you exponentiate sums you get products. but that only works if the composition terms are independent which they're not. need to be careful here. theorem 3 handles the actual composition behavior.
 
 ---
 
-## Day 27 — Theorem 2 First Draft
+**day 27**
 
-Connected the sensitivity functional to the Jacobian. Wrote:
+connected sensitivity to the Jacobian. in the $\varepsilon \to 0$ limit, the sensitivity functional should equal the Jacobian-vector product norm. wrote:
 
 $$\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta; x) = \|J_{f_\theta}(x)\|_{A_x}$$
 
-**Problem:** This is only true in the limit $\varepsilon \to 0$. For finite $\varepsilon$, the sensitivity functional captures non-linear effects that the Jacobian does not.
+i.e. the $A_x$-restricted operator norm.
 
-**Bigger problem (found later):** The original statement set a single-direction LHS equal to a sup-over-directions RHS. These are not equal — this is a full theorem error, not just a $\varepsilon \to 0$ issue.
-
----
-
-## Day 30 — Composition Instability Discovery
-
-Observed that composing two individually stable transformations ($T_1, T_2$ each with small sensitivity) did not guarantee small sensitivity for $T_2 \circ T_1$.
-
-Example: Back-translation ($T_1$) followed by synonym substitution ($T_2$). Each has high individual SPS. Composed, the representation can drift further than either alone, because each step pushes in a different direction in representation space.
-
-This motivated Theorem 3: $\mathrm{SPS}(\mathcal{T}_2 \circ \mathcal{T}_1) \leq \min(\mathrm{SPS}_1, \mathrm{SPS}_2)$.
-
-Note: composition is **not** always unstable — this is an upper bound, not a claim that composition always degrades stability.
+there's a problem here that i didn't catch until later (day 38). this equation is wrong as stated — the LHS has a sup baked in (over all T in T), but i was writing it like it equals a single JVP evaluation. that's only valid if $A_x$ is a singleton. noted this might be an issue but moved on — mistake.
 
 ---
 
-## Day 34 — Spectral Gap Idea
+**day 30**
 
-Reading on Lipschitz networks: a model that compresses information along semantic directions relative to arbitrary directions should be more stable.
+tested composition: took two transformations each with high individual SPS (back-translation + synonym swap) and measured their composition.
 
-Formalised as: the **semantic spectral gap** $\bar{\gamma} = 1 - \|J_f\|_{A_x} / \sigma_{\max}(J_f)$.
+result: composed SPS is lower than either alone. not by a huge amount but consistently below both.
 
-If $A_x$ directions are orthogonal to the top singular vector, the gap is large. This is a geometric property that existing metrics cannot detect.
-
-Implementation question: how to estimate $\sigma_{\max}(J_f(x))$ without materialising the full Jacobian? Answer: randomised power iteration via JVPs.
+makes sense geometrically — each transformation pushes the representation in a different direction. the composition compounds the drift. doesn't mean composition is always destabilizing but it motivates the upper bound in theorem 3: $\mathrm{SPS}(\mathcal{T}_2 \circ \mathcal{T}_1) \leq \min(\mathrm{SPS}_1, \mathrm{SPS}_2)$.
 
 ---
 
-## Day 38 — Theorem 2 Error Found
+**day 34**
 
-Reviewing the proof for Theorem 2 carefully:
+reading about Lipschitz networks and singular value bounds. had an idea: if the most sensitive directions of the Jacobian are geometrically far from the semantic directions $A_x$, the model is "allocating" its sensitivity budget to non-semantic features. that's a good thing.
 
-Original: $\delta(x)$ (single direction) $=$ $\|J_f(x)\|_{A_x}$ (sup over all $A_x$).
+spectral gap: $\bar{\gamma} = 1 - \|J_f\|_{A_x} / \sigma_{\max}(J_f)$
 
-These are not the same thing. $\delta(x)$ is a single JVP evaluation; the restricted norm is the sup over all unit vectors in $A_x$. The equality only holds if $A_x = \{v_T\}$ (singleton), which is not the general case.
+large gap = sensitive directions are orthogonal to semantic manifold. small gap = the model's most sensitive direction happens to be semantic, which is bad.
 
-**Decision:** Split into two-part theorem.
-- Part (i): Pointwise — JVP gives the directional derivative for a fixed $T$
-- Part (ii): Taking sup over all $T$ in the $\varepsilon \to 0$ limit gives the restricted operator norm (requires A2 for sup to be achieved)
+this isn't captured by any existing metric i'm aware of. feels like a real contribution.
 
----
-
-## Day 41 — Proposition 1 Hole Found
-
-Reviewing Proposition 1 proof: claimed $\mathrm{SPS} > 0$ from $\exp(-\mathbb{E}[\mathrm{Sens}]) > 0$.
-
-But $\exp(-\infty) = 0$. If $\mathbb{E}[\mathrm{Sens}] = +\infty$, the claim fails.
-
-Added **Assumption A4 (Integrability):** makes the strict positivity proof valid. Without A4, can only claim $\mathrm{SPS}_\varepsilon \geq 0$.
+implementation problem: how do you estimate $\sigma_{\max}(J_f(x))$ without materializing the full Jacobian? for a 125M param model that's totally infeasible. answer: randomized power iteration via JVPs. each JVP is O(one forward pass). do it k times with random vectors, take the max.
 
 ---
 
-## Day 45 — New Definitions 5–8
+**day 38**
 
-To make the framework computationally useful, added:
+caught the theorem 2 error.
 
-- **Definition 5 (Semantic Spectral Gap):** $\bar{\gamma}(f,\mathcal{T};x) := 1 - \|J_f(x)\|_{A_x} / \sigma_{\max}(J_f(x))$
-- **Definition 6 (Empirical SPS):** Monte Carlo estimator using $N$ samples — what `core.py` computes
-- **Definition 7 (Layer-wise SPS):** Apply SPS to the map $x \mapsto h^{(\ell)}(x)$ for each layer $\ell$
-- **Definition 8 (Relative SPS):** $\mathrm{rSPS} := \mathrm{SPS}_{\mathcal{T}} / \mathrm{SPS}_{\text{arb}}$ — ratio of semantic SPS to arbitrary-direction SPS
+went back through the proof and realized: i set $\delta(x)$ (a single directional derivative) equal to $\|J_f(x)\|_{A_x}$ (the sup over all directions in $A_x$). these are not the same. the restricted norm is a sup. a single JVP is not a sup unless $A_x$ is a singleton.
 
-rSPS close to 1 means semantic directions are equally destabilising as arbitrary ones — the model is not allocating its sensitivity budget away from semantics. rSPS close to 0 means semantic directions are disproportionately destabilising.
+i was asserting equality where only $\leq$ holds in general.
+
+fix: split theorem 2 into two parts.
+- part (i): single direction — JVP gives the directional derivative for a fixed T. this is fine.  
+- part (ii): taking sup over T in the $\varepsilon \to 0$ limit gives the restricted norm. requires A2 (compactness of $A_x$) for the sup to be attained.
+
+annoying to have to split it but the split version is actually cleaner.
 
 ---
 
-## Day 50 — Code Architecture
+**day 41**
 
-Decided on module structure:
+reviewing proposition 1: SPS > 0.
+
+proof: $\exp(-\mathbb{E}[\mathrm{Sens}]) > 0$ since exp is always positive.
+
+wait. $\exp(-\infty) = 0$. if $\mathbb{E}[\mathrm{Sens}]$ diverges to infinity, the claim fails. i needed to assume the expectation is finite.
+
+added A4 (integrability): $\mathbb{E}_{x \sim D}[\mathrm{Sens}] < \infty$.
+
+without A4 you can only claim $\mathrm{SPS} \geq 0$. the strict inequality requires the expectation to be finite. that's a real gap in the original proposition, not just a technicality.
+
+---
+
+**day 45**
+
+added definitions 5–8 to make the framework actually computable:
+
+5. semantic spectral gap — the $\bar{\gamma}$ from day 34, formalized
+6. empirical SPS — monte carlo estimator, this is what core.py implements
+7. layer-wise SPS — apply SPS to $x \mapsto h^{(\ell)}(x)$ for each layer $\ell$ separately
+8. relative SPS (rSPS) — ratio of semantic SPS to SPS under arbitrary directions. rSPS ≈ 1 means semantic directions are just as destabilizing as random ones. rSPS ≈ 0 means semantic directions are disproportionately bad.
+
+rSPS is probably the most practically useful one. it normalizes out model-specific sensitivity scale.
+
+---
+
+**day 50**
+
+code architecture. decided on:
 ```
 src/sps/
-  core.py         — SPSEstimator (main interface)
-  jacobian.py     — JVP computation, restricted norm, spectral gap
-  transformations.py — T_emb, T_syn families
-  metrics.py      — SPSReport, rSPS, layer-wise
-  utils.py        — math utilities, seed setting
+  core.py           main interface — SPSEstimator
+  jacobian.py       JVP, restricted norm, spectral gap
+  transformations.py  T_emb and T_syn families
+  metrics.py        SPSReport, rSPS, layerwise analyzer
+  utils.py          seed, divergence functions, etc
 ```
 
-Key decision: use `torch.autograd.functional.jvp` rather than materialising the full Jacobian. Full Jacobian for a 125M-parameter model would be $768 \times 768 \times \text{seq\_len}^2$ — infeasible.
+most important implementation decision: use `torch.autograd.functional.jvp` instead of materializing the jacobian. JVP is O(one forward pass) per direction. with k=8 probe directions that's 8× inference — acceptable. full jacobian for a 125M param model is not feasible.
 
-JVP is $O(\text{forward pass})$ per direction. With $K=8$ probe directions, cost is $8\times$ inference. Acceptable.
-
----
-
-## Day 54 — Test Suite Design
-
-Wrote `tests/test_jacobian.py` with an `ExactLinearModel(W)` where $J_f = W$ analytically.
-
-This allows exact verification:
-- `directional_derivative_norm(f, x, v)` should equal `||Wv||`
-- Spectral gap = 0 when semantic direction = top singular vector of $W$
-- Spectral gap ≈ 1 when semantic directions are in the null space of $W$
-
-This is the hardest class of test to write (requires analytical ground truth) but the most valuable — catches Jacobian implementation bugs that higher-level tests would miss.
+had a memory issue with WordNet — trying to load synonym directions for 50k tokens at import time. added a vocab cap (10k). should have caught this earlier, it's obvious in retrospect.
 
 ---
 
-## Day 58 — README Rendering Bug
+**day 54**
 
-Pushed README to GitHub. Assumptions A3–A5 rendered as broken symbol strings.
+test suite. the hardest tests to write were for jacobian.py — you need analytical ground truth to verify the JVP is being computed correctly.
 
-Root cause: blockquote syntax (`>`) + nested math subscripts triggered GitHub's italic pass before the math renderer.
+solution: `ExactLinearModel(W)` where $J_f = W$ everywhere. then:
+- `directional_derivative_norm(f, x, v)` should equal $\|Wv\|$ exactly
+- spectral gap = 0 when semantic direction = top singular vector of W
+- spectral gap ≈ 1 when semantic directions are in the null space of W
 
-Fix: removed blockquotes, moved math to standalone `$...$` blocks.
-
-**Note for future:** Never put LaTeX subscripts inside GitHub blockquotes. Always preview on GitHub before finalising.
+this catches bugs that higher-level tests would miss entirely. worth the effort.
 
 ---
 
-## Day 60 — Current State
+**day 58**
 
-Full theoretical framework: ✓  
-Full implementation: ✓  
-Test suite (43 tests): ✓  
-Experiment runner (`experiments/estimate_sps.py`): ✓  
-README: ✓  
+pushed the readme. A3–A5 came out as garbage on github — broken symbols, partial italic formatting.
 
-**Open:** Empirical comparison across model families. Need GPU time for RoBERTa-large, DeBERTa, GPT-2.
+root cause: i had the assumptions inside blockquote syntax (`>`). github's commonmark renderer does italic marker detection before math rendering. underscores in `_{\mathcal{T},\varepsilon}` inside blockquotes got interpreted as italic delimiters.
+
+fix: removed blockquotes, put math on standalone lines.
+
+note to self: never put latex subscripts inside github blockquotes. check math rendering on github before finalizing anything with nested subscripts.
+
+---
+
+**day 60**
+
+theory: done  
+code: done  
+tests: done (~43 total)  
+experiments: done  
+readme: done (after the rendering fix)
+
+what's left open: empirical comparison across model families (roberta-large, deberta, gpt-2). need actual GPU time for that. haven't started it.

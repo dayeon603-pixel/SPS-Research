@@ -1,141 +1,91 @@
-# Failures & Dead Ends — SPS
+# Failures & Dead Ends
 
-This file documents approaches that did not work, formal errors in the theory, and implementation bugs. Each failure is recorded with its diagnosis and resolution.
-
----
-
-## 1. Random Perturbation Testing
-
-**Hypothesis:**
-Apply random noise to embeddings and measure output consistency. High consistency = stable model.
-
-**What happened:**
-- Noise was semantically ungrounded — it disrupted syntax, morphology, and meaning simultaneously
-- Could not separate "model is robust because representations are stable" from "model is robust because the output layer ignores most of the input"
-- Results were dominated by output saturation effects (softmax squashing), not representation geometry
-
-**Insight:**
-Random perturbations cannot test semantic invariance. The perturbation family must be constrained to semantically neutral transformations. This led directly to the admissible family $\mathcal{T}$.
+things that didn't work. writing these down because (a) i'll forget and (b) the failures actually explain a lot of the design decisions in the final framework.
 
 ---
 
-## 2. Output-Only Consistency Metric
+## random perturbation testing
 
-**Hypothesis:**
-Measure $d_\mathcal{Y}(f(x), f(Tx))$ directly. If this is small across transformations, the model is stable.
+thought: add gaussian noise to embeddings, measure output consistency, call it robustness.
 
-**What happened:**
-- Models appeared "stable" even when internal representations changed dramatically
-- The issue: output-space metrics collapse information. A model can learn to be output-stable through many internally inconsistent paths
-- Counter-example: a model that memorises training labels will have $d_\mathcal{Y}(f(x), f(Tx)) = 0$ for all paraphrases of training points, but completely fails on novel paraphrases — falsely appearing stable
+this was my first experiment and i was wrong about what i was measuring. outputs were super stable under noise but that's because softmax at high confidence is basically flat — you can push the pre-softmax logits around a fair amount before the output probabilities actually change. i interpreted this as "model is robust" and nearly moved on. in retrospect i was just measuring output-layer saturation, not anything about the representations.
 
-**Insight:**
-Performance ≠ semantic stability. The metric must operate in representation space, not just output space. This motivated the Jacobian-based reformulation in Theorem 2.
+the noise also had no semantic grounding. it disrupts syntax, morphology, and meaning all at once. you can't interpret the result.
+
+→ this is what pushed me toward constrained transformation families. if the perturbation has no semantic meaning, neither does the stability measurement.
 
 ---
 
-## 3. Theorem 2 — Original Error
+## output-only consistency metric
 
-**The bug:**
-The original Theorem 2 stated:
+measuring $d_Y(f(x), f(Tx))$ without constraining $T$ seemed more principled. it wasn't.
 
-$$\delta(x) \text{ (single direction)} \;\leftrightarrow\; \sup_{v \in A_x} (\cdots) \text{ (all directions)}$$
+the problem: a model that memorizes training data can appear perfectly stable because it just looks up the answer regardless of what $Tx$ is. it'll return the same prediction for the original and any paraphrase of a training point. but ask it about a novel paraphrase and it falls apart — which the metric never detects.
 
-These are not equivalent. The LHS is a single directional derivative along a specific perturbation direction; the RHS is the supremum over all directions in $A_x$. Setting them equal requires the supremum to be achieved, which is not guaranteed — especially when $A_x$ is not a singleton.
+output-space metrics collapse information in a way that hides exactly the failure mode i care about. the metric needs to be in representation space, not just output space.
 
-**Diagnosis:**
-The equality was being asserted where only an inequality holds in general ($\leq$). The statement confused a pointwise instantiation with the operator norm.
-
-**Fix:**
-Split into two separate claims:
-- **Part (i):** For a fixed $T$, the pointwise sensitivity equals the JVP: $\lim_{\varepsilon \to 0} \frac{d_\mathcal{Y}(f(Tx), f(x))}{c(T,x)} = \|J_f(x) \cdot v_T\|$ where $v_T = \lim (Tx - x)/\|Tx - x\|$.
-- **Part (ii):** Taking the sup over all $T \in \mathcal{T}$ on both sides gives $\lim_{\varepsilon \to 0} \mathrm{Sens}_{\mathcal{T},\varepsilon}(f;x) = \|J_f(x)\|_{A_x}$.
-
-Part (ii) requires A2 (compactness of $A_x$) for the sup to be achieved. Added explicitly.
+→ this is what pushed me toward the Jacobian reformulation. sensitivity needs to be measured at the representation level, not just at the prediction level.
 
 ---
 
-## 4. Proposition 1 — Missing Integrability Assumption
+## theorem 2 — this one took me a while to notice
 
-**The bug:**
-Original Proposition 1 claimed $\mathrm{SPS}_\varepsilon(f_\theta) > 0$ without assuming the sensitivity expectation is finite.
+original theorem 2 basically said:
 
-**Diagnosis:**
-If $\mathbb{E}[\mathrm{Sens}] = +\infty$, then $\exp(-\mathbb{E}[\mathrm{Sens}]) = 0$, making SPS = 0. The strict positivity claim fails.
+$\delta(x)$ [single direction] $=$ $\|J_f(x)\|_{A_x}$ [sup over all directions in $A_x$]
 
-**Fix:**
-Added **Assumption A4 (Integrability):** $\mathbb{E}_{x \sim \mathcal{D}}[\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta; x)] < \infty$.
-Proposition 1 now explicitly invokes A4.
+these are not equal. a single JVP gives you the directional derivative for one specific $T$. the restricted operator norm is the supremum over all directions in $A_x$. equality would require the sup to be achieved at exactly that direction, which isn't guaranteed in general (only if $A_x$ is a singleton, which it's not).
 
----
+i was asserting equality where only $\leq$ holds. the statement confused a single instantiation with the operator norm.
 
-## 5. Theorem 4 — Missing Chain Constraint
+fixed by splitting into two claims:
+- part (i): for a fixed $T$, pointwise sensitivity = JVP norm. this is fine.
+- part (ii): taking sup over all $T$ gives the restricted operator norm, but only in the $\varepsilon \to 0$ limit, and only when $A_x$ is compact (A2). needed to add that explicitly.
 
-**The bug:**
-Theorem 4 (triangle inequality under chained transformations) stated that for $T_1, T_2 \in \mathcal{T}$:
-
-$$\mathrm{Sens}(f; T_2 \circ T_1 x) \leq \mathrm{Sens}(f; T_1 x) + \mathrm{Sens}(f; T_2 \circ T_1 x)$$
-
-But the constraint that $c(T_2, T_1 x) \leq \varepsilon$ was not stated. Without this, $T_2 \circ T_1$ may violate the $\varepsilon$-radius constraint and fall outside the admissible region where Sens is defined.
-
-**Fix:**
-Added explicit hypothesis: $c(T_2, T_1 x) \leq \varepsilon$ must hold for the composed transformation to be admissible. This is a non-trivial requirement — A5 guarantees closure under composition only when both single-step magnitudes are within $\varepsilon/2$.
+i caught this late when i was going back through the proofs carefully before writing up the paper. would have been embarrassing to miss.
 
 ---
 
-## 6. Notation Inconsistency — Missing $\varepsilon$ Subscript
+## proposition 1 — missing assumption
 
-**The bug:**
-Theorems 3 and 4 in the original draft used $\mathrm{Sens}_\mathcal{T}$ (no $\varepsilon$), while Theorem 2 and Proposition 1 used $\mathrm{Sens}_{\mathcal{T},\varepsilon}$.
+claimed $\mathrm{SPS}_\varepsilon > 0$ as a strict inequality. the proof was: $\exp(-\mathbb{E}[\mathrm{Sens}]) > 0$ because exp is always positive.
 
-**Diagnosis:**
-The $\varepsilon$-dependence is essential — the whole framework is parameterised by the perturbation radius. Dropping it implies a global (non-localised) sensitivity, which is a different and stronger claim.
+but $\exp(-\infty) = 0$. if the expectation diverges to $+\infty$, the claim fails. i needed to assume the sensitivity expectation is finite (Assumption A4, integrability) before the strict positivity claim is valid.
 
-**Fix:**
-Restored $\mathrm{Sens}_{\mathcal{T},\varepsilon}$ throughout `theory/proofs.md`. All theorems now consistently carry the $\varepsilon$ subscript.
+this was a gap in the axioms. added A4 explicitly. without it you can only claim $\mathrm{SPS}_\varepsilon \geq 0$.
 
 ---
 
-## 7. README Assumption Rendering Bug
+## theorem 4 — missing chain constraint
 
-**The bug:**
-Assumptions A3, A4, A5 in the README were wrapped in blockquote syntax (`>`). On GitHub, this caused the markdown renderer to interpret nested subscripts (e.g., `_{\mathcal{T},\varepsilon}`) as italic markers, producing broken output: raw symbols mixed with partial formatting.
+theorem 4 is a triangle inequality for chained transformations $T_2 \circ T_1$. but i forgot to state that $c(T_2, T_1 x) \leq \varepsilon$ is required — i.e., the second transformation also needs to be within the admissible radius when applied to the already-transformed input.
 
-**Diagnosis:**
-GitHub's CommonMark renderer processes italic markers before passing content to the math renderer. Blockquote indentation + underscore subscripts triggered the italic pass.
-
-**Fix:**
-- Removed blockquote wrappers from A3–A5
-- Moved math expressions into standalone `$...$` display blocks on their own lines
-- Restructured A5 (which has three sub-axioms) as a numbered list with math on separate lines
-- Verified locally with a CommonMark preview before committing
+without that constraint, $T_2 \circ T_1$ might push outside the $\varepsilon$-ball where Sens is defined, and the theorem doesn't apply. added as an explicit hypothesis. it's a non-trivial requirement — A5 only guarantees closure under composition when both single steps are within $\varepsilon/2$.
 
 ---
 
-## 8. HMM Synonym Direction Initialisation
+## notation inconsistency — the $\varepsilon$ subscript
 
-**The bug:**
-The `EmbeddingPerturbationFamily` attempted to build synonym directions from WordNet for the full tokeniser vocabulary (50k+ tokens). This caused:
-- Memory spikes (attempting to load all WordNet synsets at module import)
-- Silent fallback to random orthogonal directions for most tokens
-- No warning to the user that synonym directions were unavailable
+theorems 3 and 4 in my drafts dropped the $\varepsilon$ subscript from Sens. wrote $\mathrm{Sens}_\mathcal{T}$ instead of $\mathrm{Sens}_{\mathcal{T},\varepsilon}$.
 
-**Fix:**
-- Added `vocab_size` cap (default: 10,000 most common tokens)
-- Fallback to random orthogonal basis is now explicit and logged at `WARNING` level
-- `build_wordnet_synonym_map` now takes `max_synonyms_per_token` to bound memory
+that's not just sloppy notation — it implies a global (non-local) sensitivity, which is a stronger and different claim. the whole framework is parameterized by the perturbation radius. dropped it inconsistently throughout two theorems.
+
+went back and fixed everywhere. tedious but necessary.
 
 ---
 
-## Summary
+## readme rendering — blockquotes + math don't mix on github
 
-| # | Issue | Type | Status |
-|---|---|---|---|
-| 1 | Random perturbations → ungrounded results | Design | → admissible family $\mathcal{T}$ |
-| 2 | Output-only metric → masked instability | Design | → Jacobian reformulation |
-| 3 | Theorem 2 LHS/RHS mismatch | Theory error | Fixed — two-part theorem |
-| 4 | Proposition 1 missing integrability | Theory error | Fixed — A4 added |
-| 5 | Theorem 4 missing chain constraint | Theory error | Fixed — $c(T_2, T_1 x) \leq \varepsilon$ added |
-| 6 | Missing $\varepsilon$ in Sens subscript | Notation | Fixed — restored throughout |
-| 7 | README blockquote rendering | Documentation | Fixed — removed blockquotes |
-| 8 | WordNet vocab memory spike | Implementation | Fixed — 10k cap + explicit fallback |
+pushed the readme with A3–A5 assumptions inside blockquote syntax (`>`). on github the CommonMark renderer processes italic markers before handing off to the math renderer. so `_{\mathcal{T},\varepsilon}` inside a blockquote got partially treated as italic markup and the output was garbage — broken symbols mixed with partial formatting.
+
+fixed by removing the blockquotes entirely and putting the math on standalone lines. obvious in retrospect. always preview math-heavy markdown on github before finalizing.
+
+---
+
+## wordnet vocab loading — memory spike
+
+`EmbeddingPerturbationFamily` tried to build synonym directions from WordNet for the entire tokenizer vocabulary (50k+ tokens). this caused a massive memory spike at module import time, and silently fell back to random orthogonal directions for almost all tokens without telling anyone.
+
+so the "synonym directions" were mostly random. not ideal.
+
+fixed with a `vocab_size` cap (default 10k), explicit logging when falling back, and a `max_synonyms_per_token` parameter. should have thought about this earlier — 50k WordNet lookups at import is obviously going to be a problem.
