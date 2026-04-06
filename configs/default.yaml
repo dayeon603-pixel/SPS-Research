@@ -1,0 +1,36 @@
+# SPS Experiment Configuration
+# Reference: Kang (2026) Definitions 1, 2, 5, 6, 7, 8
+# All fields correspond directly to SPSConfig and EmbeddingPerturbationConfig.
+
+model:
+  name: "roberta-base"                    # HuggingFace model identifier
+  device: "cpu"                           # "cpu" | "cuda" | "mps"
+
+sps:
+  epsilon: 0.1                            # Perturbation radius (Definition 1)
+  m_transforms: 32                        # Transformations per sample m (Definition 6)
+  divergence: "cosine"                    # d_Y metric: "cosine" | "l2"
+  batch_size: 16
+  seed: 42
+
+transformation:
+  t_emb:
+    n_directions: 8                       # |A_x| per sample (Definition 3)
+    projection_noise_scale: 0.02
+    use_synonym_directions: true          # false = random ablation (T_arb comparison)
+  t_syn:
+    substitution_prob: 0.15
+    max_substitutions: 3
+
+wordnet:
+  enabled: true
+  vocab_size: 10000                       # Tokens to scan for synonym building
+  max_synonyms_per_token: 5
+
+jacobian:
+  n_probe_full: 16                        # Random probes for sigma_max estimation (Def 5)
+
+analysis:
+  compute_spectral_gap: true             # Definition 5 / Corollary 1
+  compute_layerwise: true                # Definition 7 (slow; disable for quick runs)
+  compute_relative: true                 # Definition 8

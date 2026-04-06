@@ -1,275 +1,276 @@
 <p align="center">
-  Structured Perturbation Stability (SPS)
-
-<p align="center">
-  <strong>An Operator-Restricted Framework for Measuring Semantic Invariance in Transformer Architectures</strong>
+  <strong>Structured Perturbation Stability (SPS)</strong>
 </p>
 
 <p align="center">
-  <em>Dayeon Kang</em><br/>
-  MICA International Scholars
+  <em>An Operator-Restricted Framework for Measuring Semantic Invariance in Transformer Architectures</em>
 </p>
 
 <p align="center">
-  <a href="./paper/SPS_paper.pdf">Paper</a> ·
-  <a href="#theoretical-framework">Theory</a> ·
-  <a href="#repository-structure">Repository Structure</a> ·
-  <a href="#roadmap">Roadmap</a>
+  Dayeon Kang &nbsp;·&nbsp; MICA International Scholars &nbsp;·&nbsp; 1st AI Agent Journal (2026)
+</p>
+
+<p align="center">
+  <a href="./Structured_Perturbation_Stability__An_Operator_Restricted_Framework_for_Measuring_Semantic_Invariance_in_Transformer_Architectures.pdf">Paper</a> ·
+  <a href="./theory/definitions.md">Definitions</a> ·
+  <a href="./theory/proofs.md">Proofs</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#theoretical-framework">Theory</a>
 </p>
 
 ---
 
 ## Overview
 
-Structured Perturbation Stability (SPS) is a theoretical framework for quantifying **semantic invariance** in neural networks. Classical robustness metrics typically evaluate stability under arbitrary or adversarial perturbations; SPS instead restricts analysis to **semantic-preserving transformations** and measures sensitivity only along those admissible directions.
+Standard robustness metrics evaluate stability under arbitrary or adversarial perturbations — they do not distinguish between random noise and transformations that preserve semantic meaning.
 
-The goal is to distinguish generic smoothness from genuine invariance to meaning-preserving variation.
+**Structured Perturbation Stability (SPS)** addresses this gap. Given a neural network $f_\theta : \mathcal{X} \to \mathcal{Y}$ and an admissible family $\mathcal{T}$ of semantic-preserving transformations, SPS measures model sensitivity *restricted to* $\mathcal{T}$. A high SPS value means the model is genuinely invariant to meaning-preserving variation — not merely smooth under arbitrary noise.
 
----
-
-## Contributions
-
-This repository develops a formal framework for semantic stability in modern neural architectures.
-
-- Introduces **structured local sensitivity** as an operator-restricted notion of model sensitivity
-- Defines **Structured Perturbation Stability (SPS)** as a global semantic stability functional
-- Derives a **Jacobian characterization** connecting semantic stability to local differential geometry
-- Establishes core properties including **boundedness**, **family monotonicity**, and **Lipschitz stability bounds**
-- Proves a **representation theorem** characterizing maximal semantic invariance through invariant latent spaces
+The central question SPS answers: **does the model ignore what it should ignore?**
 
 ---
 
 ## Theoretical Framework
 
-### Model
+### Formal Assumptions
 
-<p align="center">
-  <img src="assets/equations/model.svg" alt="model equation" />
-</p>
+> **A1 (Fréchet Differentiability):** $f_\theta$ is Fréchet differentiable on $\mathrm{supp}(\mathcal{D})$.  
+> **A2 (Transformation Compactness):** The normalized perturbation direction set $A_x^{(\varepsilon)}$ is compact in $\mathbb{S}^{d-1}$ for each $x, \varepsilon$.  
+> **A3 (Measurability):** $x \mapsto \mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta; x)$ is $\mathcal{D}$-measurable.  
+> **A4 (Integrability):** $\mathbb{E}_{x \sim \mathcal{D}}[\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta; x)] < \infty$.  
+> **A5 (Family Axioms):** $\mathcal{T}$ contains the identity, is semantically preserving, and is closed under composition.
 
-### Semantic transformation family
+### Definition 1 — Structured Local Sensitivity
 
-<p align="center">
-  <img src="assets/equations/transform_family.svg" alt="semantic transformation family" />
-</p>
+For $\varepsilon > 0$:
 
-### Transformation magnitude
+$$\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta;\, x) \;:=\; \sup_{\substack{T \in \mathcal{T} \\ 0 < c(T,x) \leq \varepsilon}} \frac{d_\mathcal{Y}(f_\theta(x),\, f_\theta(Tx))}{c(T,x)}$$
 
-<p align="center">
-  <img src="assets/equations/magnitude.svg" alt="transformation magnitude" />
-</p>
+where $c(T, x) = \|Tx - x\|$ is the transformation magnitude. This is the operator-restricted analogue of the local Lipschitz constant.
 
-### Structured local sensitivity
+### Definition 2 — Structured Perturbation Stability
 
-<p align="center">
-  <img src="assets/equations/sensitivity.svg" alt="structured local sensitivity" />
-</p>
+$$\mathrm{SPS}_\varepsilon(f_\theta) \;:=\; \exp\!\Bigl(-\,\mathbb{E}_{x \sim \mathcal{D}}\bigl[\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta;\, x)\bigr]\Bigr)$$
 
-Structured local sensitivity measures the maximum normalized output variation induced by admissible semantic transformations in an epsilon-neighborhood of the input.
-
-### Structured Perturbation Stability
-
-<p align="center">
-  <img src="assets/equations/sps.svg" alt="structured perturbation stability" />
-</p>
-
-<p align="center">
-  <img src="assets/equations/bounds.svg" alt="sps bounds" />
-</p>
-
-Higher SPS values indicate stronger invariance to semantic-preserving transformations.
+Under A3–A4: $\quad 0 < \mathrm{SPS}_\varepsilon(f_\theta) \leq 1$. Higher values = stronger semantic invariance.
 
 ---
 
 ## Main Results
 
-### Differential characterization
+### Proposition 1 — Boundedness
 
-Assume local structured transformations of the form
+Under A3–A4, for any $f_\theta$: $\quad 0 < \mathrm{SPS}_\varepsilon(f_\theta) \leq 1$.
 
-<p align="center">
-  <img src="assets/equations/local_transform.svg" alt="local structured transformation" />
-</p>
+*The strict lower bound requires A4 (integrability). Without it, $\mathbb{E}[\mathrm{Sens}] = \infty$ is possible, giving $\mathrm{SPS} = 0$.*
 
-Then SPS admits the following Jacobian characterization:
+### Theorem 1 — Family Monotonicity
 
-<p align="center">
-  <img src="assets/equations/jacobian.svg" alt="jacobian characterization" />
-</p>
+If $\mathcal{T}_1 \subseteq \mathcal{T}_2$, then:
 
-This connects semantic stability to a restricted Jacobian operator norm over admissible semantic directions.
+$$\mathrm{Sens}_{\mathcal{T}_1,\varepsilon}(f_\theta;\, x) \;\leq\; \mathrm{Sens}_{\mathcal{T}_2,\varepsilon}(f_\theta;\, x) \qquad\text{and}\qquad \mathrm{SPS}_\varepsilon^{(\mathcal{T}_1)}(f_\theta) \;\geq\; \mathrm{SPS}_\varepsilon^{(\mathcal{T}_2)}(f_\theta)$$
 
-### Family monotonicity
+### Theorem 2 — Differential Characterization *(corrected)*
 
-If
+Under A1–A2, suppose $\mathcal{T}$ contains all perturbations $T_\alpha^v(x) = x + \alpha v$ for $v \in A_x$.
 
-<p align="center">
-  <img src="assets/equations/subset.svg" alt="transformation family subset relation" />
-</p>
+**(i) Directional derivative:** For each $v \in A_x$, $\|v\| = 1$:
 
-then
+$$\lim_{\alpha \to 0} \frac{\|f_\theta(x + \alpha v) - f_\theta(x)\|}{\alpha} = \|J_{f_\theta}(x)\, v\|$$
 
-<p align="center">
-  <img src="assets/equations/monotonicity1.svg" alt="sensitivity monotonicity" />
-</p>
+**(ii) Restricted operator norm:** As $\varepsilon \to 0$:
 
-and
+$$\lim_{\varepsilon \to 0}\, \mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta;\, x) \;=\; \sup_{\substack{v \in A_x \\ \|v\| = 1}} \|J_{f_\theta}(x)\, v\| \;=:\; \|J_{f_\theta}(x)\|_{A_x}$$
 
-<p align="center">
-  <img src="assets/equations/monotonicity2.svg" alt="sps monotonicity" />
-</p>
+This is the $A_x$-**restricted operator norm** of the Jacobian — the maximum output sensitivity over admissible semantic directions.
 
-### Lipschitz stability bound
+### Theorem 3 — Lipschitz Stability Bound
 
-If the model is globally Lipschitz, then
+If $f_\theta$ is globally $L$-Lipschitz: $\quad \mathrm{SPS}_\varepsilon(f_\theta) \geq e^{-L}$
 
-<p align="center">
-  <img src="assets/equations/lipschitz1.svg" alt="lipschitz sensitivity bound" />
-</p>
+### Theorem 4 — Sequential Transformation Stability
 
-which yields
+For $T_1, T_2 \in \mathcal{T}$ with $c(T_1, x) \leq \varepsilon$ and $c(T_2, T_1 x) \leq \varepsilon$:
 
-<p align="center">
-  <img src="assets/equations/lipschitz2.svg" alt="lipschitz sps bound" />
-</p>
+$$d_\mathcal{Y}(f_\theta(x),\, f_\theta(T_2 T_1 x)) \;\leq\; \mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta;\, x)\, c(T_1, x) \;+\; \mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta;\, T_1 x)\, c(T_2, T_1 x)$$
 
-### Semantic Stability Representation Theorem
+### Theorem 5 — Semantic Stability Representation Theorem
 
-Suppose the model decomposes as
+If $f_\theta = g_\theta \circ \phi_\theta$ and $\phi_\theta(Tx) = \phi_\theta(x)$ for all $T \in \mathcal{T}$, then:
 
-<p align="center">
-  <img src="assets/equations/decomposition.svg" alt="model decomposition" />
-</p>
-
-with
-
-<p align="center">
-  <img src="assets/equations/phi_map.svg" alt="representation and prediction maps" />
-</p>
-
-If the learned representation is invariant under the admissible transformation family,
-
-<p align="center">
-  <img src="assets/equations/invariance.svg" alt="representation invariance" />
-</p>
-
-then the model output is invariant,
-
-<p align="center">
-  <img src="assets/equations/output_invariance.svg" alt="output invariance" />
-</p>
-
-and consequently,
-
-<p align="center">
-  <img src="assets/equations/sens_zero.svg" alt="maximal semantic stability" />
-</p>
+$$f_\theta(Tx) = f_\theta(x), \qquad \mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta;\, x) = 0, \qquad \mathrm{SPS}_\varepsilon(f_\theta) = 1$$
 
 ---
 
-## Geometric Interpretation
+## New Results
 
-For an input x, define its transformation orbit by
+### Definition 5 — Semantic Spectral Gap
 
-<p align="center">
-  <img src="assets/equations/orbit.svg" alt="transformation orbit" />
-</p>
+$$\bar{\gamma}(f_\theta, \mathcal{T};\, x) \;:=\; 1 - \frac{\|J_{f_\theta}(x)\|_{A_x}}{\sigma_{\max}(J_{f_\theta}(x))} \;\in\; [0,\, 1]$$
 
-Maximal semantic stability arises when all elements of the orbit collapse to the same latent representation:
+- $\bar{\gamma} \to 0$: worst-case sensitivity direction is semantic — the model is maximally sensitive where it should be invariant.
+- $\bar{\gamma} \to 1$: Jacobian annihilates all semantic directions — perfect invariance.
 
-<p align="center">
-  <img src="assets/equations/orbit_collapse.svg" alt="orbit collapse" />
-</p>
+### Corollary 1 — Spectral Gap Stability Bound
 
-Equivalently, semantic directions are annihilated by the local Jacobian:
+If $\bar{\gamma}(f_\theta, \mathcal{T};\, x) \geq \gamma_0 > 0$ $\mathcal{D}$-a.s. and $f_\theta$ is $L$-Lipschitz:
 
-<p align="center">
-  <img src="assets/equations/direction_annihilation.svg" alt="jacobian annihilates semantic directions" />
-</p>
+$$\mathrm{SPS}_\varepsilon(f_\theta) \;\geq\; \exp\!\bigl(-(1 - \gamma_0)\, L\bigr) \;\geq\; e^{-L}$$
 
-This provides a geometric account of how semantic invariance can emerge in learned representation spaces.
+Strictly tighter than Theorem 3 whenever $\gamma_0 > 0$.
+
+### Definition 6 — Empirical SPS Estimator
+
+$$\widehat{\mathrm{SPS}}_\varepsilon^{(n,m)}(f_\theta) \;:=\; \exp\!\left(-\frac{1}{n}\sum_{i=1}^{n} \max_{j=1,\ldots,m} \frac{d_\mathcal{Y}(f_\theta(x_i),\, f_\theta(\tau_j(x_i)))}{c(\tau_j,\, x_i)}\right)$$
+
+Converges a.s. to $\mathrm{SPS}_\varepsilon(f_\theta)$ as $n, m \to \infty$ (under A1–A4).
+
+### Definition 7 — Layer-wise SPS (Transformer-specific)
+
+$$\mathrm{SPS}_\varepsilon^{(l)}(f_\theta) \;:=\; \mathrm{SPS}_\varepsilon(f_\theta^{(l)}), \qquad l = 0, 1, \ldots, L$$
+
+The **SPS depth profile** characterizes how semantic stability accumulates through transformer depth.
+
+### Definition 8 — Relative SPS
+
+$$\mathrm{rSPS}_\varepsilon(f_\theta;\, \mathcal{T}) \;:=\; \frac{\mathrm{SPS}_\varepsilon^{(\mathcal{T})}(f_\theta)}{\mathrm{SPS}_\varepsilon^{(\mathcal{T}_{\mathrm{arb}})}(f_\theta)}$$
+
+- $\mathrm{rSPS} > 1$: model is more stable to semantic perturbations than arbitrary noise. *(Desired.)*
+- $\mathrm{rSPS} < 1$: pathological — model is more sensitive to semantics than random noise.
 
 ---
 
 ## Repository Structure
 
-```text
+```
 SPS/
-├── assets/
-│   └── equations/          # SVG-rendered equations for stable GitHub display
-├── paper/
-│   └── SPS_paper.pdf       # manuscript
+├── src/sps/
+│   ├── core.py             # Definitions 1, 2, 6 — SPSEstimator
+│   ├── transformations.py  # T_emb, T_syn families, WordNet synonym map
+│   ├── jacobian.py         # Theorem 2, Definition 5, Corollary 1
+│   ├── metrics.py          # Definitions 7, 8 — relative SPS, layerwise SPS
+│   └── utils.py            # Divergence functions, seed management
+├── experiments/
+│   └── estimate_sps.py     # Full empirical evaluation on RoBERTa-base
+├── tests/
+│   ├── test_core.py        # Proposition 1, Theorems 1, 5
+│   ├── test_jacobian.py    # Theorem 2, Definition 5, Corollary 1
+│   └── test_transformations.py
 ├── theory/
-│   ├── definitions.md      # formal definitions and notation
-│   └── proofs.md           # theorem statements and proof sketches
-├── experiments/            # planned empirical evaluation
-├── benchmarks/             # planned semantic perturbation benchmarks
-└── README.md
+│   ├── definitions.md      # All definitions with formal assumptions
+│   └── proofs.md           # All theorem statements + proof sketches
+├── configs/
+│   └── default.yaml
+└── pyproject.toml
 ```
 
 ---
 
-## Status
+## Quick Start
 
-This repository is currently organized around the theoretical foundation of SPS.
+**Install:**
+```bash
+pip install -e ".[experiments]"
+# For WordNet synonym maps:
+python -m nltk.downloader wordnet omw-1.4
+```
 
-Implemented now:
-- formal problem setup
-- mathematical definitions
-- principal theorems
-- GitHub-safe equation rendering
+**Run the experiment:**
+```bash
+python experiments/estimate_sps.py --epsilon 0.1 --m-transforms 32
+# Skip layer-wise analysis for speed:
+python experiments/estimate_sps.py --skip-layerwise
+# GPU:
+python experiments/estimate_sps.py --device cuda
+```
 
-Planned next:
-- empirical SPS estimation on transformer models
-- semantic perturbation benchmark construction
-- comparison against adversarial robustness metrics
-- multilingual and multimodal extensions
+**Python API:**
+```python
+from transformers import AutoModel, AutoTokenizer
+from sps import (
+    SPSConfig, EmbeddingPerturbationFamily, EmbeddingPerturbationConfig,
+    build_sps_estimator, spectral_gap, set_seed,
+)
+
+set_seed(42)
+model = AutoModel.from_pretrained("roberta-base").eval()
+tokenizer = AutoTokenizer.from_pretrained("roberta-base")
+
+# Build transformation family
+t_emb = EmbeddingPerturbationFamily(
+    embedding_layer=model.get_input_embeddings(),
+    config=EmbeddingPerturbationConfig(n_directions=8),
+)
+
+# Estimate SPS
+config = SPSConfig(epsilon=0.1, m_transforms=32, divergence="cosine")
+estimator = build_sps_estimator(model, t_emb, config)
+result = estimator.estimate(iter(batches))  # batches: list of {input_ids, attention_mask, embeddings}
+print(f"SPS = {result['sps']:.4f}")
+
+# Spectral gap (Definition 5)
+gap = spectral_gap(lambda emb: model(inputs_embeds=emb).last_hidden_state[:, 0], emb, directions)
+print(f"Mean spectral gap γ̄ = {gap.mean_gap:.4f}")
+```
+
+**Run tests:**
+```bash
+pytest tests/ -v
+```
+
+---
+
+## Geometric Interpretation
+
+Semantic transformations define structured directions in input space. The transformation orbit of $x$ is:
+
+$$\mathcal{O}_\mathcal{T}(x) := \{ Tx : T \in \mathcal{T} \}$$
+
+Maximal semantic stability ($\mathrm{SPS} = 1$) arises when the representation $\phi_\theta$ collapses every orbit to a single point:
+
+$$\phi_\theta(Tx) = \phi_\theta(x) \quad \forall\, T \in \mathcal{T}$$
+
+In differential terms, this requires the Jacobian to annihilate all semantic directions:
+
+$$J_{f_\theta}(x)\, v = 0 \quad \forall\, v \in A_x$$
+
+The spectral gap $\bar{\gamma}$ quantifies how close a model is to this ideal — it measures the separation between semantic directions and the worst-case sensitivity direction.
 
 ---
 
 ## Roadmap
 
-### Near-term
-- Add theorem-by-theorem proof notes in `theory/proofs.md`
-- Add notation sheet and assumptions summary
-- Add pseudocode for empirical SPS estimation
+**Near-term**
+- [ ] Empirical SPS evaluation across model scales (RoBERTa-base, large; GPT-2)
+- [ ] Comparison: SPS vs. adversarial robustness metrics on NLI and SST-2
+- [ ] Statistical confidence intervals for empirical SPS (bootstrap)
 
-### Mid-term
-- Implement an evaluation pipeline for transformer encoders and decoder-only language models
-- Construct semantic transformation families for NLP experiments
-- Study scaling behavior of SPS across model size and architecture
+**Mid-term**
+- [ ] T_back: back-translation paraphrase family
+- [ ] SPS scaling laws: how SPS_eps^{(l)} varies with model depth and width
+- [ ] Connection to information geometry: SPS and Fisher information metric
 
-### Long-term
-- Extend SPS to multimodal representation learning
-- Connect SPS to benchmark design for robust generalization
-- Explore applications to trustworthy evaluation of advanced AI systems
+**Long-term**
+- [ ] Multimodal SPS (vision-language models)
+- [ ] SPS as an evaluation criterion for robust generalization benchmarks
+- [ ] Formal connection between SPS and PAC-Bayes generalization bounds
 
 ---
 
 ## Citation
 
-If you want to review this work, see the updated abstract/introduction in the `/Structured_Perturbation_Stability__An_Operator_Restricted_Framework_for_Measuring_Semantic_Invariance_in_Transformer_Architectures.pdf
-`.
-
 ```bibtex
 @article{kang2026sps,
-  title={Structured Perturbation Stability: An Operator-Restricted Framework for Measuring Semantic Invariance in Transformer Architectures},
-  author={Kang, Dayeon},
-  journal={1st AI Agent Journal},
-  year={2026}
+  title     = {Structured Perturbation Stability: An Operator-Restricted Framework
+               for Measuring Semantic Invariance in Transformer Architectures},
+  author    = {Kang, Dayeon},
+  journal   = {1st AI Agent Journal},
+  year      = {2026}
 }
 ```
 
 ---
 
-## License
-
-This repository currently does not include a license file. Add a project license before public release if redistribution or reuse is intended.
-
----
-
 ## Contact
 
-**Dayeon Kang**  
-MICA International Scholars  
-dayeon603@gmail.com
+**Dayeon Kang** · MICA International Scholars · dayeon603@gmail.com

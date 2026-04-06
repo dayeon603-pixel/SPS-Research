@@ -1,0 +1,52 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking
+.mypy_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+notebooks/
+
+# Model weights / large files
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+models/
+checkpoints/
+
+# Data
+data/raw/
+data/processed/
+
+# Experiment outputs
+outputs/
+logs/
+*.log
+wandb/
+mlruns/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# macOS
+.DS_Store
