@@ -124,8 +124,9 @@ class TestStructuredSensitivityEstimator:
         )
         sens = estimator.estimate(embeddings, input_ids, attention_mask, m=8)
         assert sens.shape == (BATCH,)
-        # Constant model: f(x) = f(Tx) always, so divergence = 0
-        assert (sens < 1e-6).all(), f"Expected ~0 sensitivity, got {sens}"
+        # Constant model: f(x) = f(Tx) always, so divergence = 0.
+        # Float32 cosine divergence between identical vectors can produce ~5e-6 artefacts.
+        assert (sens < 1e-5).all(), f"Expected ~0 sensitivity, got {sens}"
 
     def test_sensitivity_nonnegative(self, t_emb, embeddings, input_ids, attention_mask):
         """Sensitivity is always >= 0 (Proposition 1 prerequisite)."""

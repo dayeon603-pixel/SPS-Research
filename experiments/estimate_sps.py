@@ -279,9 +279,18 @@ def main() -> None:
 
         directions = t_emb.semantic_directions(emb0, ids0)
 
-        def _model_fn(inputs_embeds: torch.Tensor) -> torch.Tensor:
-            out = model(inputs_embeds=inputs_embeds, attention_mask=mask0)
-            return out.last_hidden_state[:, 0, :]
+        # Use math (eager) SDPA kernel so JVP backward works on CPU.
+        # Flash attention / memory-efficient attention lack CPU JVP support.
+        try:
+            from torch.nn.attention import SDPBackend, sdpa_kernel as _sdpa_kernel
+            def _model_fn(inputs_embeds: torch.Tensor) -> torch.Tensor:
+                with _sdpa_kernel(SDPBackend.MATH):
+                    out = model(inputs_embeds=inputs_embeds, attention_mask=mask0)
+                return out.last_hidden_state[:, 0, :]
+        except (ImportError, AttributeError):
+            def _model_fn(inputs_embeds: torch.Tensor) -> torch.Tensor:  # type: ignore[misc]
+                out = model(inputs_embeds=inputs_embeds, attention_mask=mask0)
+                return out.last_hidden_state[:, 0, :]
 
         gap_result = spectral_gap(_model_fn, emb0, directions, n_probe_full=16)
         gap_mean = gap_result.mean_gap
@@ -330,15 +339,16 @@ def main() -> None:
     ]
     print_results_table(rows)
 
-    # rSPS interpretation
-    if rsps > 1.0:
+    # rSPS interpretation (compare with tolerance to avoid float display/logic mismatch)
+    _tol = 5e-4
+    if rsps > 1.0 + _tol:
         print(f"  rSPS = {rsps:.4f} > 1 — model is MORE stable to semantic perturbations")
         print("  than arbitrary noise of the same magnitude. (Desired regime.)")
-    elif rsps < 1.0:
+    elif rsps < 1.0 - _tol:
         print(f"  rSPS = {rsps:.4f} < 1 — model is MORE sensitive to semantic perturbations.")
         print("  This is a pathological failure mode (Definition 8).")
     else:
-        print("  rSPS ≈ 1 — semantic stability indistinguishable from generic smoothness.")
+        print(f"  rSPS ≈ 1 ({rsps:.4f}) — semantic stability indistinguishable from generic smoothness.")
 
     # Spectral gap
     if gap_result is not None:

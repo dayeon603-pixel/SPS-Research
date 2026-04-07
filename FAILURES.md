@@ -89,3 +89,56 @@ fixed by removing the blockquotes entirely and putting the math on standalone li
 so the "synonym directions" were mostly random. not ideal.
 
 fixed with a `vocab_size` cap (default 10k), explicit logging when falling back, and a `max_synonyms_per_token` parameter. should have thought about this earlier — 50k WordNet lookups at import is obviously going to be a problem.
+
+---
+
+## 2026-04-07 — test threshold too tight for float32 cosine precision
+
+`test_zero_sensitivity_for_constant_model` was checking `sens < 1e-6`. values were 4.6e-6, 2.8e-6, 6.2e-6, 2.7e-6. test failed.
+
+root cause: float32 cosine divergence between two identical vectors is not *exactly* zero. `F.normalize` applied twice, dot product summed, then `1 - dot`. the subtraction picks up ~5e-6 numerical noise. nothing wrong with the logic.
+
+fix: threshold `1e-6` → `1e-5`. that's the right granularity for float32 cosine on random 32-dim vectors.
+
+lesson: test thresholds for floating-point quantities need to account for dtype precision, not just the mathematical ideal.
+
+---
+
+## 2026-04-07 — spectral gap JVP fails with flash attention on CPU
+
+`spectral_gap()` in `jacobian.py` calls `torch.autograd.functional.jvp` through a RoBERTa model. failed with:
+
+```
+derivative for aten::_scaled_dot_product_flash_attention_for_cpu_backward is not implemented
+```
+
+root cause: newer PyTorch defaults to flash attention on Apple Silicon. flash attention's backward pass (needed for JVP) is not implemented for CPU in this build. `jvp` requires the backward pass to propagate tangents.
+
+first fix attempt: store context manager in `_sdpa_ctx = sdpa_kernel(SDPBackend.MATH)` and reuse with `with _sdpa_ctx`. failed with:
+
+```
+'_GeneratorContextManager' object has no attribute 'args'
+```
+
+context managers from `@contextmanager` are generator-based and cannot be re-entered after the first `__exit__`. storing one instance and calling `with` on it twice breaks it.
+
+final fix: create a fresh context manager per call inside the model function closure:
+
+```python
+def _model_fn(inputs_embeds):
+    with _sdpa_kernel(SDPBackend.MATH):
+        out = model(inputs_embeds=inputs_embeds, attention_mask=mask0)
+    return out.last_hidden_state[:, 0, :]
+```
+
+lesson: context managers from `@contextmanager` are single-use. never store and re-enter them. always call the factory fresh inside the `with` block.
+
+---
+
+## 2026-04-07 — rSPS display says "1.0000 < 1"
+
+rSPS was 0.99993, displayed as 1.0000 (4 decimal places). the condition `rsps < 1.0` was True because 0.99993 < 1.0, but the printed string showed `rSPS = 1.0000 < 1` which is logically absurd.
+
+fix: added ±5e-4 tolerance band around 1.0. values within [0.9995, 1.0005] now fall into the "≈ 1" case.
+
+lesson: always check that display-level rounding matches the condition logic. if you format to 4 decimals, your condition tolerance should be at least 5e-4.
