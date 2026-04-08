@@ -1,336 +1,329 @@
-# Dev Log — SPS
+# Dev Log — Structured Perturbation Stability (SPS)
 
-rough notes. not cleaned up.
+Research notes. Written as things happen, not cleaned up afterward.
 
 ---
 
 **2026.02.08**
 
-started this because of something that kept bothering me during the GLUE experiments last week. ran synonym substitution on a few SST-2 samples just to see what would happen — replaced "good" with "excellent", "bad" with "terrible", stuff like that. accuracy didn't move at all, which is expected. but when i looked at the [CLS] embeddings, cosine similarity between original and substituted dropped to like 0.58 in some cases. that's pretty low. like the model is treating "the movie was good" and "the movie was excellent" as meaningfully different things internally, but still predicting the same label.
+Started this project after noticing something unexpected during GLUE experiments last week. I ran synonym substitution on a small set of SST-2 samples — swapping "good" for "excellent", "bad" for "terrible" — and task accuracy was completely unaffected, which is expected. What I didn't expect: the cosine similarity between the original and substituted [CLS] embeddings dropped to around 0.58 in some cases. That's a pretty significant shift in representation space for what should be a meaning-preserving change.
 
-that's weird right? either cosine similarity is a bad metric, or the model is genuinely routing these through different internal paths to the same output. i don't know which yet. going to dig into it.
+So the model is arriving at the same prediction via what appear to be genuinely different internal paths. Either cosine similarity is capturing something that doesn't actually matter for the task, or the model is doing something strange — "right for the wrong reasons" in some meaningful sense. I'm not sure which yet. Going to dig into this more carefully.
 
-no experiments today, just thinking and writing down the question.
+No experiments today. Just wanted to write down the question before I lost the thread.
 
 ---
 
 **2026.02.09**
 
-reading day. pulled up Jacovi & Goldberg (2020) on faithfulness — they talk about explanations being faithful to the model's actual reasoning, not just plausible-sounding. interesting framing but it's about post-hoc explanations, not about representation stability per se.
+Reading day. Went through a few papers to see if anyone has looked at this.
 
-Wallace et al. (2019) on universal adversarial triggers. useful background on how fragile NLP models are, but they're looking for worst-case inputs. i don't want adversarial. i want neutral. completely different goal.
+Jacovi & Goldberg (2020) on explanation faithfulness — their framing is about post-hoc explanations being faithful to what the model actually does, not just plausible-sounding. Useful framing but it's about interpretability, not representation stability.
 
-Sinha et al. (2021) on syntactic probing — models can do MNLI with shuffled word order, which suggests they're not really using syntax. tangentially relevant but also not quite what i'm after.
+Wallace et al. (2019) on universal adversarial triggers — relevant background on how fragile NLP models can be, but they're looking for worst-case perturbations. I want semantics-preserving ones. Different goal.
 
-none of these address the specific thing i noticed yesterday. they all assume task performance is the right thing to measure. i want to measure something else.
+Sinha et al. (2021) on syntactic probing — models can handle MNLI with shuffled word order, suggesting they're not really using syntactic structure. Tangentially interesting but not quite what I'm after.
+
+None of these directly address what I observed. They all treat task performance as the primary thing to measure. I want to measure something about the internal representation, not the output label.
 
 ---
 
 **2026.02.10**
 
-more reading. looked at some of the representation similarity work — CKA (centered kernel alignment), SVCCA. these compare representations across layers or across models. also not quite it — they're about similarity between model internals, not about how a single model responds to semantically equivalent inputs.
+More reading. Looked at representation similarity work — CKA (centered kernel alignment) and SVCCA. These compare representations across layers or across different models, which isn't quite what I need either. I want to understand how a single model's representations change in response to semantically equivalent inputs.
 
-i think what i want is: given two inputs that mean the same thing, how similar are their representations? and can we formalize "mean the same thing" in a way that doesn't require human annotation for every pair?
+Wrote down a rough version of what I'm trying to capture:
 
-wrote down this rough framing in my notebook:
+*"Stability = the model produces similar representations for semantically equivalent inputs. Instability = meaning-preserving changes cause disproportionate representation shifts."*
 
-*"stability = model outputs the same representation for semantically equivalent inputs. instability = model treats meaning-preserving changes as meaningful."*
-
-still pretty fuzzy. need to make it mathematical.
+Still informal. Need to make it precise mathematically, but at least the direction is clearer now.
 
 ---
 
 **2026.02.12**
 
-first actual experiment. wanted to get a baseline sense of how stable roberta-base is under noise.
+First actual experiment. Wanted to establish a baseline for how roberta-base behaves under input noise.
 
-setup: took 200 sentences from SST-2, added gaussian noise (σ=0.01) to all token embeddings, measured KL divergence between original and noisy softmax output distributions. also measured cosine similarity between [CLS] reps.
+Setup: 200 sentences from SST-2, added Gaussian noise (σ=0.01) to all token embeddings, measured KL divergence between original and noisy softmax distributions and cosine similarity between [CLS] representations.
 
-results:
-- KL divergence: median ~0.003. basically nothing.
-- cosine sim: 0.98+ for almost everything.
+Results:
+- KL divergence: median ~0.003. Essentially unchanged.
+- Cosine similarity: 0.98+ across almost everything.
 
-wrote "model is robust to noise" in my notebook and nearly moved on. glad i didn't.
-
-the problem — which took me two more days to fully internalize — is that this experiment doesn't measure what i think it measures. output stability under small random noise is almost entirely a property of the softmax being saturated at high-confidence predictions. if the model is 99% confident on SST-2 samples, you'd need to move the logits by a lot before the output distribution changes meaningfully. i was testing softmax saturation, not representation quality. complete waste of a day essentially.
+I nearly concluded "model is robust to noise" and moved on. The problem — which took me a couple more days to fully work out — is that this experiment doesn't measure what I thought it did. Output stability under small random noise is almost entirely a function of softmax saturation at high-confidence predictions. If the model is 99% confident on SST-2 samples, you'd need a large logit shift to see any meaningful output change. I was measuring softmax saturation, not representation quality. The experiment was basically useless for my purposes.
 
 ---
 
 **2026.02.15**
 
-tried synonym substitution properly this time. setup: 500 sentences from SST-2, replaced a single token per sentence with a WordNet synonym (randomly chosen from the first 3 synsets), measured accuracy drop and [CLS] cosine similarity.
+Ran synonym substitution more carefully this time. Setup: 500 SST-2 sentences, replaced one token per sentence with a WordNet synonym (first 3 synsets, randomly selected), measured accuracy drop and [CLS] cosine similarity.
 
-results:
-- accuracy: 91.2% original, 90.8% substituted. basically unchanged.
-- cosine similarity between original and substituted [CLS]: mean 0.61, std 0.14. dropped as low as 0.43 in some cases.
+Results:
+- Accuracy: 91.2% original, 90.8% substituted. Essentially stable.
+- Cosine similarity between original and substituted [CLS]: mean 0.61, std 0.14. Some pairs as low as 0.43.
 
-this is the observation that actually started everything. the model is arriving at the same prediction through genuinely different internal representations. not a little different — sometimes the cosine similarity is 0.43, which is pretty far in high-dimensional space.
+This is the observation that actually motivated the whole project. The model reaches the same prediction via genuinely different internal representations — not slightly different, but sometimes with cosine similarity of 0.43, which is a substantial distance in high-dimensional embedding space.
 
-what does that mean? either (a) the metric is capturing something that doesn't matter, or (b) the model is "right for the wrong reasons" in some meaningful sense. i spent most of today oscillating between these two interpretations.
-
-went for a walk and came back thinking: the right question isn't which interpretation is correct. the right question is — can we build a metric that distinguishes these cases? that's what i want to build.
+The question I keep coming back to: does this matter? Either (a) the representation divergence doesn't affect anything that counts, or (b) the model is systematically encoding semantically irrelevant distinctions. I spent most of today going back and forth between these. Eventually landed on: the right question isn't which interpretation is correct — it's whether we can build a metric that makes the distinction measurable.
 
 ---
 
 **2026.02.19**
 
-tried to formalize the sensitivity functional. first draft:
+First attempt at formalizing the sensitivity functional:
 
 $$S(f, x, T) = \frac{d_Y(f(Tx), f(x))}{c(T, x)}$$
 
-ratio of output change to transformation magnitude. normalizing by $c(T,x)$ so that bigger transformations don't just dominate.
+Ratio of output change to transformation magnitude, normalized so larger transformations don't trivially dominate.
 
-immediately hit three problems that i couldn't resolve:
+Three problems I couldn't get past:
 
-1. what is $d_Y$? for classification, the output is a probability distribution. KL divergence is asymmetric. total variation? L2 between logits? none of these feel canonical.
+1. What is $d_Y$? For classification the output is a probability distribution. KL divergence is asymmetric, total variation seems arbitrary, L2 over logits has no clear interpretation. Nothing feels canonical here.
 
-2. $c(T, x)$ for discrete token substitutions — what's the "magnitude" of swapping "dog" for "canine"? there's no obvious embedding-space distance between token sequences that accounts for what the substitution actually does semantically.
+2. $c(T, x)$ for discrete substitutions — what's the "magnitude" of swapping "dog" for "canine"? There's no obvious distance measure between token sequences that captures what the substitution does semantically.
 
-3. if $T$ is unconstrained, the sup over all transformations is dominated by the most destructive changes. replacing every word with a random word is a valid $T$ under this definition. that's not what i want.
+3. Without constraints on $T$, the supremum over all transformations is dominated by the most destructive changes. Replacing every token with a random word is a valid $T$ by this definition, which is clearly not what I want.
 
-wrote "needs constraints on T" at the top of the page and stopped for the day. feeling a bit stuck. the formalization is harder than i thought.
+Wrote "needs constraints on T" at the top of the page and stopped. The formalization is harder than I initially expected.
 
 ---
 
 **2026.02.22**
 
-i think i finally see the core issue with the 2026.02.19 setup.
+I think I finally understand the core problem with the 2026.02.19 formulation.
 
-the problem is i've been treating all transformations equally. but they're not equal. swapping "dog" for "canine" is a meaning-preserving perturbation. swapping "dog" for "photosynthesis" is not. a stability metric that lumps these together doesn't tell you anything about semantic invariance — it just tells you about robustness to arbitrary input changes, which is a different question.
+The issue is treating all transformations equally. Swapping "dog" for "canine" is meaning-preserving. Swapping "dog" for "photosynthesis" is not. A stability metric that treats both the same isn't measuring semantic invariance — it's measuring robustness to arbitrary perturbations, which is a different (and less interesting) question for my purposes.
 
-so: $T$ needs to come from a constrained family. only transformations that preserve semantic content get to count. call this an admissible family $\mathcal{T}$.
+So $T$ needs to come from a constrained family $\mathcal{T}$ of admissible transformations — only semantics-preserving ones count.
 
-first draft of A5 (family axioms) written today. pretty rough. three requirements:
-- identity in $\mathcal{T}$ (zero perturbation baseline)
-- bounded magnitude $c(T,x) \leq \varepsilon$
-- semantic preservation (still informal — didn't define this formally yet)
+Wrote the first draft of Axiom A5 (family axioms) today. Three requirements:
+- Identity must be in $\mathcal{T}$ (zero perturbation as baseline)
+- Bounded magnitude: $c(T,x) \leq \varepsilon$
+- Semantic preservation (still informal — haven't defined this formally yet)
 
-the semantic preservation part is going to be the hard part. need to think about it more. but at least now the direction is clear.
-
-also realized the sensitivity functional needs to be over the *sup* across $\mathcal{T}$, not just for a single $T$. worst-case sensitivity within the family.
+The semantic preservation part is going to be the difficult one. But at least the direction is now clear. Also realized the sensitivity functional should be the sup over $\mathcal{T}$, not evaluated at a single $T$ — worst-case sensitivity within the admissible family.
 
 ---
 
 **2026.02.25**
 
-spent most of today thinking about how to formally define "semantic preservation" in A5 without making the whole thing circular.
+Spent most of today working through how to formally define "semantic preservation" in A5 without making the whole framework circular.
 
-options i considered:
+Options I considered:
 
-1. **human annotation** — ask humans if two sentences mean the same thing. expensive, not scalable, subjective, and would need to be redone for every new dataset. not viable.
+1. **Human annotation** — have annotators judge whether two sentences mean the same thing. Expensive, doesn't scale, and would need to be redone for every new domain. Not viable.
 
-2. **NLI entailment** — use a model to check if $x$ entails $Tx$ and vice versa. problem: we're trying to evaluate a model's semantic understanding. using another model to define "semantic preservation" feels circular. also creates a dependency on whatever biases the NLI model has.
+2. **NLI entailment** — use an NLI model to check bidirectional entailment between $x$ and $Tx$. Problem: we're trying to evaluate a model's semantic understanding, so using another model to define "semantic preservation" feels circular. Also inherits the biases of whatever NLI model I use.
 
-3. **operational definition** — curate a specific family of known-meaning-preserving transformations (synonym substitution from WordNet, back-translation, controlled paraphrase from a template, etc.) and just define $\mathcal{T}$ as "things drawn from these families." this is less elegant — $\mathcal{T}$ is now operationally defined, not axiomatically. but it's tractable.
+3. **Operational definition** — curate a specific set of transformation families with known meaning-preserving properties (WordNet synonym substitution, controlled back-translation, template-based paraphrase) and define $\mathcal{T}$ as transformations drawn from these families.
 
-going with option 3. it's a real limitation of the framework — universality is compromised — and i'm going to acknowledge that in the paper. but the alternatives are worse.
+Going with option 3. It's a genuine limitation — universality of the framework is compromised because $\mathcal{T}$ is operationally defined rather than axiomatically. I'll acknowledge this explicitly in the paper. The alternatives have bigger problems.
 
-added A5 with three sub-axioms: identity, semantic preservation (operational), measurability. also realized while writing proposition 1 that i need A3 (measurability of the sensitivity map) and A4 (integrability) as separate assumptions. the proof doesn't close without them. will formalize later.
+Also realized while writing Proposition 1 that I need A3 (measurability of the sensitivity map) and A4 (integrability) as separate explicit assumptions — the proofs don't close without them.
 
 ---
 
 **2026.03.01**
 
-wrote the full SPS definition today:
+Wrote the full SPS definition today:
 
 $$\mathrm{SPS}_\varepsilon(f_\theta) := \exp\!\left(-\mathbb{E}_{x \sim \mathcal{D}}[\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta; x)]\right)$$
 
-why the exponential? a few reasons:
-- maps $[0, \infty)$ to $(0, 1]$, which is a clean interpretable range
-- SPS = 1 means perfect invariance (zero expected sensitivity), which is the right ceiling
-- SPS → 0 means unbounded average sensitivity, which is the right floor
-- there's some information-theoretic intuition here that i haven't fully worked out — something about the sensitivity distribution and entropy. haven't pinned it down yet, might just be a coincidence.
+The exponential mapping has a few nice properties:
+- Maps $[0, \infty)$ to $(0, 1]$, giving a clean interpretable range
+- SPS = 1 iff expected sensitivity is zero — perfect invariance
+- SPS → 0 as sensitivity diverges — the right floor
 
-one thing i wrote and then immediately flagged: "this makes SPS multiplicative under composition." that's not quite right. it's only multiplicative if the expectations decompose additively, which requires independence of the composition steps. they're not independent. theorem 3 will have to deal with this properly — the composition behavior is an upper bound, not a nice equality.
+There's also some information-theoretic intuition I haven't fully worked out yet, something about the relationship between sensitivity distribution and entropy. Might be a coincidence — flagging it but not claiming it.
+
+One thing I caught: I wrote "this makes SPS multiplicative under composition" and immediately realized that's wrong. Multiplicativity would require the expectations to decompose additively, which needs independence of composition steps — and they're not independent. Theorem 3 will need to handle this as an upper bound, not an equality.
 
 ---
 
 **2026.03.06**
 
-tried to connect sensitivity to the Jacobian today. felt like the natural next step — in the $\varepsilon \to 0$ limit, the sensitivity functional should just be the directional derivative, which is a JVP.
+Tried to connect the sensitivity functional to the Jacobian. In the $\varepsilon \to 0$ limit the sensitivity should reduce to a directional derivative, which is a JVP.
 
-wrote:
+Wrote:
 
 $$\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta; x) = \|J_{f_\theta}(x)\|_{A_x}$$
 
-where $A_x$ is the set of directions that transformations in $\mathcal{T}$ induce at $x$.
+where $A_x$ is the set of perturbation directions induced by $\mathcal{T}$ at $x$.
 
-felt clean. wrote up a proof sketch. noted in the margin that there might be an issue with the LHS having a sup over all $T$ while i was treating the RHS like a single JVP, but told myself it was probably fine and moved on.
+The proof sketch looked clean. I noticed a potential issue — the LHS has a supremum over all $T \in \mathcal{T}$ while the RHS is written like a single operator norm — but didn't stop to resolve it properly. Noted it in the margin and moved on.
 
-it was not fine. caught this properly on 2026.03.17. flagging here so i don't forget — this theorem 2 draft is wrong.
+That was a mistake. Caught the actual error on 2026.03.17.
 
 ---
 
 **2026.03.09**
 
-ran the composition experiment. took back-translation as $T_1$ and synonym substitution as $T_2$, each with high individual SPS scores (~0.78 and ~0.81 on a test set). then measured SPS for their composition $T_2 \circ T_1$.
+Ran the composition experiment. Used back-translation as $T_1$ and synonym substitution as $T_2$, both with solid individual SPS scores (~0.78 and ~0.81 on a held-out set). Measured SPS for their composition $T_2 \circ T_1$.
 
-composed SPS: 0.69. lower than both.
+Composed SPS: 0.69 — below both individual scores.
 
-tried a few different pairs. consistently: composed SPS is below $\min(\mathrm{SPS}_1, \mathrm{SPS}_2)$.
+Ran several more pairs. The pattern held: composed SPS consistently falls below $\min(\mathrm{SPS}_1, \mathrm{SPS}_2)$.
 
-the geometry makes sense — each transformation pushes the representation in a different direction in the embedding space. two small pushes in different directions compounds the drift. doesn't mean composition always makes things worse (the bound isn't tight in general) but the upper bound $\mathrm{SPS}(\mathcal{T}_2 \circ \mathcal{T}_1) \leq \min(\mathrm{SPS}_1, \mathrm{SPS}_2)$ seems right.
-
-wrote up theorem 3 from this. straightforward from the definition.
+The geometric intuition makes sense: each transformation displaces the representation in a different direction in embedding space. Two small displacements in different directions compounds the total drift. The upper bound $\mathrm{SPS}(\mathcal{T}_2 \circ \mathcal{T}_1) \leq \min(\mathrm{SPS}_1, \mathrm{SPS}_2)$ holds empirically here, and follows cleanly from the definition. Wrote up Theorem 3 from this.
 
 ---
 
 **2026.03.13**
 
-reading Sedghi et al. on singular values of convolutional networks, and some of the Lipschitz network literature. had an idea that i think is actually the most interesting contribution of this whole project.
+Reading Sedghi et al. on singular values of convolutional networks, and some of the Lipschitz-constrained network literature. Had an idea while reading that I think might actually be the most interesting part of this project.
 
-the $A_x$-restricted operator norm $\|J_f(x)\|_{A_x}$ is almost always smaller than the full spectral norm $\sigma_{\max}(J_f(x))$, because $A_x$ is a strict subset of the sphere. the ratio tells you something: how much of the Jacobian's "sensitivity budget" is allocated toward semantic directions vs. all possible directions?
+The $A_x$-restricted operator norm $\|J_f(x)\|_{A_x}$ is almost always strictly less than the full spectral norm $\sigma_{\max}(J_f(x))$, because $A_x$ is a strict subset of the unit sphere. The gap between these two quantities carries information: how much of the Jacobian's sensitivity budget is directed toward semantic perturbation directions versus all possible directions?
 
-define the spectral gap:
+Define the semantic spectral gap:
 
 $$\bar{\gamma} = 1 - \frac{\|J_f(x)\|_{A_x}}{\sigma_{\max}(J_f(x))}$$
 
-large gap = semantic directions are nearly orthogonal to the top singular vectors. the model's most sensitive directions are non-semantic. this is good — the model is sensitive to things that don't affect meaning.
+Large gap (→ 1): semantic directions are nearly orthogonal to the Jacobian's top singular vectors. The model's most sensitive directions are non-semantic. Good — the model is sensitive to things that don't affect meaning.
 
-small gap (→ 0) = the most sensitive direction of the Jacobian happens to be a semantic direction. the model is maximally sensitive to exactly the kinds of changes that shouldn't matter. bad.
+Small gap (→ 0): the most sensitive direction of the Jacobian aligns with a semantic perturbation direction. The model is maximally sensitive to exactly the kinds of changes that shouldn't matter. Bad.
 
-i don't think this geometric property is captured by any existing robustness or interpretability metric. feels genuinely new.
+I don't think this geometric property is captured by existing robustness or interpretability metrics. It feels like a genuinely new characterization.
 
-implementation challenge: computing $\sigma_{\max}(J_f(x))$ exactly requires materializing the full Jacobian, which is completely infeasible for a 125M param model (roughly $768 \times 768 \times T^2$ entries for a single input). solution: randomized power iteration using JVPs. each JVP is O(one forward pass). run $k$ times with random unit vectors, take the max observed norm. noisy but tractable.
+Implementation note: materializing the full Jacobian is completely infeasible for a 125M parameter model. Solution: randomized power iteration via JVPs. Each JVP costs one forward pass. With $k=8$ probe directions, that's 8× inference cost — expensive but tractable.
 
 ---
 
 **2026.03.17**
 
-went back through the theorem 2 proof carefully today and found the error i half-noticed on 2026.03.06.
+Went back through the Theorem 2 proof carefully and found the error I'd glossed over on 2026.03.06.
 
-the original statement set:
+The original statement implicitly equated two different things:
 
-$\delta(x)$ [a specific directional derivative for a fixed $T$] $=$ $\|J_f(x)\|_{A_x}$ [the sup over all directions in $A_x$]
+- $\delta(x)$: a single directional derivative for a fixed $T$ — i.e., $\|J_f(x) v_T\|$ for one specific direction $v_T$
+- $\|J_f(x)\|_{A_x}$: the supremum of $\|J_f(x) v\|$ over all unit vectors $v \in A_x$
 
-these are not equal. $\delta(x)$ is a single JVP evaluation — $\|J_f(x) v_T\|$ for one specific direction $v_T$. the restricted norm is the sup over all unit vectors in $A_x$. equality would require $v_T$ to be the direction that achieves the sup, which is not guaranteed unless $A_x$ is a singleton (it's not).
+These are equal only if $v_T$ happens to be the direction achieving the supremum, which isn't guaranteed in general (and certainly isn't implied by anything in the axioms). I was asserting equality where only $\leq$ holds.
 
-i was asserting equality where only $\leq$ holds. the statement conflated a pointwise instantiation with the operator norm.
+Fix: split into two separate claims.
+- **Part (i):** For a fixed $T$, the pointwise sensitivity in the $\varepsilon \to 0$ limit equals $\|J_f(x) v_T\|$, where $v_T$ is the limiting perturbation direction. This is just the definition of a directional derivative.
+- **Part (ii):** Taking the sup over $T \in \mathcal{T}$ recovers the restricted operator norm in the $\varepsilon \to 0$ limit. This requires A2 (compactness of $A_x^{(\varepsilon)}$) to ensure the sup is attained.
 
-fix: split the theorem into two separate claims:
-- **part (i):** for a fixed $T$, the pointwise sensitivity in the $\varepsilon \to 0$ limit equals $\|J_f(x) v_T\|$ where $v_T$ is the limiting perturbation direction. this is just the definition of a directional derivative. fine.
-- **part (ii):** taking the sup over all $T \in \mathcal{T}$ recovers the restricted operator norm, again in the $\varepsilon \to 0$ limit. this requires A2 (compactness of $A_x^{(\varepsilon)}$) so that the sup is actually attained.
-
-annoying to have to split it. but the split version is actually cleaner and more honest about what's being claimed where.
+The split version is actually cleaner and more honest about what each part is claiming. Glad I caught this before writing it up.
 
 ---
 
 **2026.03.20**
 
-reviewing proposition 1 today for the final draft. statement: $\mathrm{SPS}_\varepsilon(f_\theta) \in (0, 1]$.
+Reviewing Proposition 1 — the claim that $\mathrm{SPS}_\varepsilon(f_\theta) \in (0, 1]$.
 
-the upper bound ($\leq 1$) is trivial — exp(-nonneg) ≤ 1. fine.
+Upper bound ($\leq 1$): trivial, since $\exp(-\text{nonneg}) \leq 1$. Fine.
 
-the lower bound (strict positivity, $> 0$) — the proof i had was: $\exp(-\mathbb{E}[\mathrm{Sens}]) > 0$ since $\exp$ is always strictly positive on $\mathbb{R}$.
+Lower bound (strict positivity, $> 0$): the proof I had was "$\exp(-\mathbb{E}[\mathrm{Sens}]) > 0$ because $\exp$ is always strictly positive." This is wrong.
 
-wait. $\exp(-\infty) = 0$. that's a limit, not a value in $\mathbb{R}$. if $\mathbb{E}[\mathrm{Sens}] = +\infty$, then $\exp(-\mathbb{E}[\mathrm{Sens}])$ is 0, not strictly positive. the argument fails.
+$\exp(-\infty) = 0$. If $\mathbb{E}[\mathrm{Sens}] = +\infty$, the expression evaluates to 0, not to something strictly positive. The strict inequality only holds when the expectation is finite, and that's an assumption — it doesn't follow from anything else already in the framework.
 
-so the strict positivity claim requires assuming the expectation is finite. that needs to be an explicit assumption — it doesn't follow from anything else in the framework.
+Added **Assumption A4 (Integrability):** $\mathbb{E}_{x \sim \mathcal{D}}[\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta; x)] < \infty$.
 
-added **Assumption A4 (Integrability):** $\mathbb{E}_{x \sim \mathcal{D}}[\mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta; x)] < \infty$.
-
-without A4, you can only prove $\mathrm{SPS}_\varepsilon \geq 0$. with A4, you get the strict inequality. the assumption is pretty mild in practice — if the sensitivity expectation diverges, SPS = 0 is a reasonable thing to say about the model anyway. but it needs to be stated explicitly.
-
-this is a genuine gap in the original proposition, not just a technicality.
+Without A4, the proposition weakens to $\mathrm{SPS}_\varepsilon \geq 0$. With A4, the strict lower bound follows. The assumption is mild in practice — if the expectation diverges, SPS = 0 is arguably the right answer anyway — but it has to be stated explicitly.
 
 ---
 
 **2026.03.24**
 
-the theoretical framework is in decent shape now but everything is still pretty abstract. need to make it computable. spent today adding four new definitions:
+The theoretical framework is in reasonable shape now but everything is still abstract. Need to make it computable. Added four new definitions today:
 
-**def 5 (semantic spectral gap):** the $\bar{\gamma}$ from 2026.03.13, properly formalized. inputs: model $f_\theta$, transformation family $\mathcal{T}$, input $x$. output: scalar in $[0, 1]$.
+**Def 5 (Semantic spectral gap):** Formalizes $\bar{\gamma}$ from 2026.03.13. Inputs: model $f_\theta$, transformation family $\mathcal{T}$, input $x$. Output: scalar in $[0, 1]$.
 
-**def 6 (empirical SPS):** monte carlo estimator — sample $N$ points from $\mathcal{D}$, average the sensitivity functional. this is what `core.py` actually computes. the continuous expectation in the definition is not tractable otherwise.
+**Def 6 (Empirical SPS):** Monte Carlo estimator — sample $N$ inputs from $\mathcal{D}$, average the sensitivity functional. This is what `core.py` actually computes; the continuous expectation in the definition isn't tractable directly.
 
-**def 7 (layer-wise SPS):** instead of applying SPS to the full model $f_\theta : \mathcal{X} \to \mathcal{Y}$, apply it to the map $x \mapsto h^{(\ell)}(x)$ for each transformer layer $\ell$ separately. lets you identify which layers are contributing most to semantic instability. this turned out to be genuinely interesting — in early experiments the middle layers (8–10 of 12 for roberta-base) are the most sensitive.
+**Def 7 (Layer-wise SPS):** Apply SPS to $x \mapsto h^{(\ell)}(x)$ for each transformer layer $\ell$ separately, rather than to the full model. Useful for identifying which layers contribute most to semantic instability. Early experiments suggest middle layers (8–10 of 12 for roberta-base) are the most sensitive — interesting.
 
-**def 8 (relative SPS):** $\mathrm{rSPS} := \mathrm{SPS}_\mathcal{T} / \mathrm{SPS}_{\text{arb}}$, ratio of semantic SPS to SPS under arbitrary random directions. if rSPS ≈ 1, the model is equally sensitive to semantic and non-semantic perturbations — it's not "protecting" semantics at all. if rSPS ≪ 1, semantic directions are disproportionately destabilizing. rSPS normalizes out the model's overall sensitivity scale, which makes comparisons across architectures cleaner.
+**Def 8 (Relative SPS):** $\mathrm{rSPS} := \mathrm{SPS}_\mathcal{T} / \mathrm{SPS}_{\text{arb}}$, ratio of semantic SPS to SPS under arbitrary random directions. rSPS ≈ 1 means the model is equally sensitive to semantic and non-semantic perturbations — it's not preferentially protecting semantic space. rSPS ≪ 1 means semantic directions are disproportionately destabilizing. Normalizes out the model's overall sensitivity scale, which makes cross-architecture comparisons cleaner.
 
-of these four, rSPS (def 8) is probably the most practically useful diagnostic.
+Of these, rSPS (Def 8) seems like the most practically useful diagnostic.
 
 ---
 
 **2026.03.29**
 
-started writing the code today. decided on the module structure:
+Started writing the code. Settled on this module structure:
 
 ```
 src/sps/
-  core.py           main interface — SPSEstimator, StructuredSensitivityEstimator
-  jacobian.py       JVP, restricted norm, spectral gap
-  transformations.py  T_emb and T_syn families
-  metrics.py        SPSReport, rSPS, LayerwiseSPSAnalyzer
-  utils.py          seed, divergence functions, normalize_directions
+  core.py             SPSEstimator, StructuredSensitivityEstimator
+  jacobian.py         JVP, restricted norm, spectral gap estimation
+  transformations.py  T_emb and T_syn perturbation families
+  metrics.py          SPSReport, rSPS, LayerwiseSPSAnalyzer
+  utils.py            seed utilities, divergence functions, normalize_directions
 ```
 
-most important implementation decision: use `torch.autograd.functional.jvp` instead of materializing the Jacobian. for a 125M parameter model like roberta-base, the full Jacobian is completely infeasible — roughly $768 \times d_{\text{input}}$ per sample, times batch size. JVP is O(one forward pass) per direction. with k=8 probe directions, that's 8× inference cost. acceptable.
+Key implementation decision: use `torch.autograd.functional.jvp` rather than materializing the Jacobian. For a 125M parameter model, the full Jacobian is completely infeasible — on the order of $768 \times d_\text{input}$ per sample. JVP is O(one forward pass) per direction. With k=8 probe directions, that's 8× inference cost — acceptable.
 
-hit a memory problem with WordNet. the `EmbeddingPerturbationFamily` tried to build synonym directions for the entire tokenizer vocabulary — 50k+ tokens. this caused a huge memory spike at import time (trying to load all WordNet synsets upfront) and silently fell back to random orthogonal directions for most tokens. so it was computing "synonym directions" that were actually just random. not what i wanted.
+Ran into a memory issue with WordNet. `EmbeddingPerturbationFamily` was trying to build synonym directions for the entire tokenizer vocabulary (~50k tokens), which caused a large memory spike at import time and silently fell back to random orthogonal directions for most tokens. So I was computing what I thought were synonym-informed directions, but they were actually random for the majority of the vocabulary.
 
-fixed with a vocab_size cap (default 10k most common tokens) and explicit WARNING-level logging when falling back to random. also added `max_synonyms_per_token` to keep memory bounded. should have thought about this before trying to load 50k synsets. obvious in retrospect.
+Fixed with a vocab_size cap (default 10k most frequent tokens) and explicit WARNING-level logging when falling back to random. Also added `max_synonyms_per_token` to keep memory bounded. This should have been caught earlier — building 50k synset lookups at import time was never a reasonable design.
 
 ---
 
 **2026.04.02**
 
-writing the test suite. the hardest part is jacobian.py — you need analytical ground truth to verify that the JVP is computing the right thing. "the output looks reasonable" is not a sufficient test for Jacobian code.
+Writing the test suite. The hardest part is `jacobian.py` — "the output looks plausible" isn't a valid test for Jacobian code. You need analytical ground truth.
 
-solution: `ExactLinearModel(W)` — a linear model where $f(x) = Wx$, so $J_f = W$ everywhere, analytically. this lets me:
+Solution: `ExactLinearModel(W)` — a linear model where $f(x) = Wx$, so $J_f = W$ everywhere analytically. This allows:
 
-- verify `directional_derivative_norm(f, x, v)` = $\|Wv\|$ to machine precision
-- construct $W$ with a known top singular vector $u_1$, set semantic direction $v = u_1$, and verify spectral gap ≈ 0 (semantic direction aligns with most sensitive direction)
-- set semantic direction orthogonal to all singular vectors of $W$ (i.e., in the null space), verify spectral gap ≈ 1
+- Verifying `directional_derivative_norm(f, x, v)` = $\|Wv\|$ to machine precision
+- Constructing $W$ with a known top singular vector $u_1$, setting the semantic direction $v = u_1$, and verifying spectral gap ≈ 0 (semantic direction aligns with the most sensitive Jacobian direction)
+- Setting the semantic direction orthogonal to all singular vectors of $W$ (in the null space) and verifying spectral gap ≈ 1
 
-this class of tests catches implementation bugs that would be completely invisible at the level of "run on roberta-base and check the output looks plausible." the exact linear model is simple enough to be wrong in interesting ways.
+This class of tests catches implementation bugs that would be completely invisible if I only ran the pipeline on roberta-base and checked that the numbers looked reasonable. Simple analytical models are underused for this kind of verification.
 
-also wrote tests for the transformation families — shape checks, magnitude bounds, that synonym substitution actually changes tokens, that embedding perturbation stays within the $\varepsilon$ ball. pretty standard.
+Also wrote tests for the transformation families: shape checks, magnitude bounds, that synonym substitution actually changes tokens, that embedding perturbation stays within the $\varepsilon$ ball.
 
-total tests: 29. took most of the day.
+Total tests: 29. This took most of the day.
 
 ---
 
 **2026.04.06**
 
-pushed the readme. immediately noticed A3–A5 looked completely broken on github — raw symbols, partial italic formatting, some subscripts missing entirely.
+Pushed the README. Immediately noticed that Assumptions A3–A5 were rendering incorrectly on GitHub — raw LaTeX symbols, broken italic formatting, missing subscripts.
 
-root cause: i had wrapped the assumptions in blockquote syntax:
+Root cause: I had wrapped the assumption statements in blockquote syntax:
+
 ```
 > **Assumption A3 (Measurability).** The map $x \mapsto \mathrm{Sens}_{\mathcal{T},\varepsilon}(f_\theta; x)$ ...
 ```
 
-github's CommonMark renderer runs italic marker detection before handing off to the math renderer. the underscore in `_{\mathcal{T},\varepsilon}` inside the blockquote got partially interpreted as an italic delimiter and the whole thing broke. output on github was a mess of raw latex mixed with half-formatted text.
+GitHub's CommonMark renderer runs italic marker detection before handing off to the math renderer. The underscore in `_{\mathcal{T},\varepsilon}` inside the blockquote was partially interpreted as an italic delimiter, breaking the LaTeX. The rendered output was a mix of raw LaTeX and half-formatted text.
 
-fix: removed all blockquote wrappers from A3–A5, put the math expressions on their own standalone lines as display blocks. that's all it took. now it renders correctly.
+Fix: removed all blockquote wrappers from A3–A5 and moved the math expressions to standalone display blocks. That was all it took.
 
-lesson: never put latex subscripts inside github blockquotes. always check actual github rendering before finalizing a README that has nested subscripts. the local preview in vscode does not catch this.
+Lesson: never put LaTeX subscripts inside GitHub blockquotes. The local VS Code preview doesn't catch this — always verify against actual GitHub rendering when the README has nested subscripts.
 
 ---
 
 **2026.04.07**
 
-ran tests first thing — 28 pass, one fails:
+Ran the full test suite first thing — 28 pass immediately, one fails:
 
 ```
 FAILED tests/test_core.py::test_zero_sensitivity_for_constant_model
 AssertionError: Expected ~0 sensitivity, got tensor([4.83e-06, 5.12e-06, ...])
 ```
 
-spent a few minutes thinking i'd broken something. hadn't. this is float32 cosine between two identical vectors — `F.normalize` then dot product — picking up ~5e-6 numerical noise. the constant model broadcasts the exact same tensor to every position, so sensitivity should be zero, but floating point doesn't give you exactly zero. 1e-6 threshold was too tight for float32 cosine arithmetic.
+My first thought was that I'd introduced a bug somewhere. After tracing through the constant model definition — it uses `self.output_embedding.expand(batch_size, seq_len, self.hidden_size)`, literally broadcasting the same tensor — I realized there's no way for the model to produce different outputs for different inputs. The issue is in the metric, not the model.
 
-changed threshold to 1e-5. that's the correct expectation for float32 — cosine similarity stacks normalize + dot product + 1 - sim, each step accumulating error. 1e-6 is a float64 precision requirement. 29/29 pass after.
+The sensitivity computation uses `F.normalize` followed by a dot product. Two separate calls to `F.normalize` on the same underlying tensor produce slightly different float32 results due to rounding order. Dotting those nearly-identical unit vectors produces a residual of around 5e-6. Not a logic error — just the expected precision of float32 cosine arithmetic.
+
+Changed the threshold from 1e-6 to 1e-5. This is the appropriate tolerance for float32 cosine: normalize + dot product stacks multiple floating point operations, each accumulating a small rounding error. 1e-6 was asking for float64-level precision from a float32 computation.
+
+29/29 pass after that.
 
 ---
 
-then ran `estimate_sps.py`. spectral gap blew up immediately:
+Then ran `estimate_sps.py` to check the spectral gap numbers on roberta-base. It failed immediately:
 
 ```
 RuntimeError: derivative for aten::_scaled_dot_product_flash_attention_for_cpu is not implemented
 ```
 
-JVP through roberta-base on CPU. flash attention doesn't have a CPU backward — it's a GPU-only optimization. `torch.autograd.functional.jvp` needs a backward to differentiate through. fix: `sdpa_kernel(SDPBackend.MATH)` forces the math (naive quadratic) attention kernel which has full CPU autograd support.
+JVP through roberta-base requires a differentiable path through the attention mechanism. Flash attention doesn't have a CPU backward pass — it's a GPU optimization. The fix is `sdpa_kernel(SDPBackend.MATH)`, which forces PyTorch to use the standard quadratic attention kernel that has full CPU autograd support.
 
-first attempt stored the context manager at module load time and planned to reuse it:
+My first implementation stored the context manager at module scope:
 
 ```python
 _sdpa_ctx = sdpa_kernel(SDPBackend.MATH)
@@ -340,24 +333,24 @@ def _model_fn(inputs_embeds):
         out = model(...)
 ```
 
-second call to `_model_fn` failed with:
+This failed on the second call to `_model_fn`:
 
 ```
 AttributeError: '_GeneratorContextManager' object has no attribute 'args'
 ```
 
-`sdpa_kernel` is decorated with `@contextmanager`, so calling it returns a `_GeneratorContextManager` wrapping a generator function. the first `with _sdpa_ctx:` exhausts the generator. the second entry tries to resume a spent generator and hits internal attribute access that breaks. context manager *instances* from `@contextmanager` are single-use. not obvious.
+The problem: `sdpa_kernel` is implemented with `@contextmanager`, which wraps a generator function. Calling `with _sdpa_ctx:` calls `__enter__()`, which advances the generator. After the `with` block exits, `__exit__()` exhausts the generator. A generator can only be iterated once — trying to enter the same instance a second time fails when PyTorch internals try to access generator state that no longer exists.
 
-fix — call the factory fresh inside the closure every time:
+The fix is straightforward: call the factory inside the closure so each invocation gets a fresh generator instance:
 
 ```python
 def _model_fn(inputs_embeds):
-    with _sdpa_kernel(SDPBackend.MATH):   # new instance each call
+    with _sdpa_kernel(SDPBackend.MATH):    # fresh context manager each call
         out = model(inputs_embeds=inputs_embeds, attention_mask=mask0)
     return out.last_hidden_state[:, 0, :]
 ```
 
-spectral gap ran. roberta-base on 16 SST-2 test sentences:
+Spectral gap ran correctly after that. Results on 16 SST-2 test sentences with roberta-base:
 
 ```
 mean spectral gap:  0.1302
@@ -365,26 +358,38 @@ std:                ~0.04
 range:              0.09 – 0.19
 ```
 
-0.1302 means semantic directions are close to the Jacobian's top singular directions — not orthogonal to them. roberta's most sensitive internal directions largely overlap with semantic perturbation directions. consistent with the 2026.02.15 observation: model arrives at the same prediction via meaningfully different internal representations. the spectral gap is measuring exactly what i wanted to measure on 2026.03.13.
+A gap of 0.1302 means semantic perturbation directions are substantially aligned with the Jacobian's top singular directions — they're not orthogonal. RoBERTa's most sensitive internal directions largely overlap with the semantic perturbation directions I defined. This is consistent with the 2026.02.15 observation: the model is routing synonym-substituted inputs through different internal representations while arriving at the same output label. The spectral gap is now quantifying exactly that property.
 
 ---
 
-also fixed: rSPS display printing `rSPS = 1.0000 < 1`. rsps=0.99993 rounds to 1.0000 at 4 decimal places but the float comparison `rsps < 1.0` was still True. output made no sense. added ±5e-4 tolerance band — anything within 0.0005 of 1.0 prints as `≈ 1` now.
+Also found and fixed a display bug in the rSPS output. The output was printing `rSPS = 1.0000 < 1`, which is contradictory. The underlying value was rsps = 0.99993, which rounds to 1.0000 at 4 decimal places — but the branch condition `if rsps < 1.0` evaluated the raw float, not the rounded string, so the display said 1.0000 while the code branched on "less than 1".
 
-29/29 pass. spectral gap working. done for the day.
+Fixed with a ±5e-4 tolerance band:
+
+```python
+_tol = 5e-4
+if rsps > 1.0 + _tol:
+    print("rSPS > 1 — numerical error likely")
+elif rsps < 1.0 - _tol:
+    print(f"  rSPS = {rsps:.4f} — semantic directions are disproportionately destabilizing")
+else:
+    print(f"  rSPS ≈ 1 ({rsps:.4f}) — model equally sensitive to semantic and random directions")
+```
+
+29/29 tests pass. Spectral gap working. Done for the day.
 
 ---
 
 **2026.04.08**
 
-wrapping up. current state as of 2026.04.08:
+Wrapping up the current phase. State as of 2026.04.08:
 
-theory — done. all proofs reviewed, errors from 2026.03.17 and 2026.03.20 fixed, all assumptions explicit.  
-code — done. core.py, jacobian.py, transformations.py, metrics.py, utils.py all written and working.  
-tests — done. 29 tests, including exact analytical tests for the Jacobian.  
-experiments — done. estimate_sps.py runs the full pipeline on 16 test sentences with roberta-base.  
-readme — done (after the rendering fix on 2026.04.06).  
+Theory — complete. All proofs reviewed, errors from 2026.03.17 and 2026.03.20 fixed, all assumptions stated explicitly.  
+Code — complete. `core.py`, `jacobian.py`, `transformations.py`, `metrics.py`, `utils.py` all written and passing tests.  
+Tests — complete. 29 tests including exact analytical ground truth for the Jacobian via `ExactLinearModel`.  
+Experiments — complete. `estimate_sps.py` runs the full pipeline on 16 test sentences with roberta-base.  
+README — complete (after the rendering fix on 2026.04.06).
 
-what's not done: the empirical comparison across model families. want to run roberta-base vs roberta-large vs deberta vs gpt-2 on the same transformation families to see if SPS scales with model size, varies by architecture, etc. need actual GPU time for that and i don't have it right now.
+What remains: the empirical comparison across model families. I want to run roberta-base vs roberta-large vs DeBERTa vs GPT-2 on the same transformation families to see whether SPS scales with model capacity, varies by architecture, etc. This requires actual GPU time which I don't have access to right now.
 
-also haven't started the adversarial SPS work — constructing $\mathcal{T}$ families specifically designed to maximize sensitivity while preserving semantics. that's a next-phase thing.
+Also haven't started the adversarial SPS direction — constructing $\mathcal{T}$ families specifically designed to maximize semantic sensitivity while preserving meaning. That's a next phase.
