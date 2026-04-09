@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  Dayeon Kang &nbsp;·&nbsp; MICA International Scholars 
+  Dayeon Kang &nbsp;·&nbsp; Independent Researcher
 </p>
 
 <p align="center">
