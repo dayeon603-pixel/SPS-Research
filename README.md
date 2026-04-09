@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  Dayeon Kang &nbsp;·&nbsp; MICA International Scholars &nbsp;·&nbsp; 1st AI Agent Journal (2026)
+  Dayeon Kang &nbsp;·&nbsp; MICA International Scholars 
 </p>
 
 <p align="center">
