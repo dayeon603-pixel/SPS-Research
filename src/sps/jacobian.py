@@ -144,6 +144,44 @@ def restricted_operator_norm(
     return stacked.max(dim=1).values                               # (B,)
 
 
+def adversarial_worst_direction(
+    fn: ForwardFn,
+    x: torch.Tensor,
+    directions: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Find the worst-case semantic direction: argmax_{v in A_x} ||Jf(x) v||.
+
+    This is the constructive dual of restricted_operator_norm: instead of
+    returning the maximum JVP norm, it returns the direction that achieves it.
+    Used to build the AdversarialEmbeddingFamily.
+
+    Args:
+        fn:          Forward function f: (B, seq, h) -> (B, d).
+        x:           Input embeddings (B, seq, h).
+        directions:  Admissible semantic directions (B, K, seq, h).
+
+    Returns:
+        Worst-case directions of shape (B, seq, h), one per sample.
+    """
+    B, K, seq_len, hidden = directions.shape
+    norms_per_dir: list[torch.Tensor] = []
+
+    for k in range(K):
+        v_k = directions[:, k, :, :]                              # (B, seq, h)
+        jvp_norm = directional_derivative_norm(fn, x, v_k)        # (B,)
+        norms_per_dir.append(jvp_norm)
+
+    stacked = torch.stack(norms_per_dir, dim=1)                   # (B, K)
+    worst_k = stacked.argmax(dim=1)                                # (B,)
+
+    # Gather the worst direction for each sample
+    worst_dirs = directions[
+        torch.arange(B, device=x.device), worst_k                 # (B, seq, h)
+    ]
+    return worst_dirs
+
+
 # ---------------------------------------------------------------------------
 # Full spectral norm via randomized power iteration
 # ---------------------------------------------------------------------------

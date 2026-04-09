@@ -115,7 +115,9 @@ def estimate_arbitrary_sps(
     model: nn.Module,
     data_iterator: Iterator[dict[str, torch.Tensor]],
     config: SPSConfig,
-) -> float:
+    *,
+    return_full: bool = False,
+) -> "float | dict[str, float]":
     """
     Estimate SPS under arbitrary l2-ball perturbations T_arb (the denominator of rSPS).
 
@@ -126,9 +128,14 @@ def estimate_arbitrary_sps(
         model:         Transformer model.
         data_iterator: Batches with input_ids, attention_mask, embeddings.
         config:        SPSConfig.
+        return_full:   If True, return the full estimator result dict
+                       (sps, mean_sensitivity, std_sensitivity, n_samples)
+                       instead of just the sps float. Useful for constructing
+                       delta-method confidence intervals on rSPS.
 
     Returns:
-        SPS_eps^{(T_arb)}(f).
+        SPS_eps^{(T_arb)}(f) as float (default), or full result dict when
+        return_full=True.
     """
     from sps.transformations import EmbeddingPerturbationConfig
 
@@ -144,7 +151,7 @@ def estimate_arbitrary_sps(
     )
     estimator = build_sps_estimator(model, arb_family, config)
     result = estimator.estimate(data_iterator)
-    return result["sps"]
+    return result if return_full else result["sps"]
 
 
 # ---------------------------------------------------------------------------

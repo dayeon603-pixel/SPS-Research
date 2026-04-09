@@ -15,6 +15,7 @@ from sps.core import (
 )
 from sps.jacobian import (
     SpectralGapResult,
+    adversarial_worst_direction,
     directional_derivative_norm,
     full_spectral_norm,
     restricted_operator_norm,
@@ -29,6 +30,8 @@ from sps.metrics import (
     relative_sps,
 )
 from sps.transformations import (
+    AdversarialEmbeddingConfig,
+    AdversarialEmbeddingFamily,
     EmbeddingPerturbationConfig,
     EmbeddingPerturbationFamily,
     SynonymSubstitutionConfig,
@@ -52,6 +55,7 @@ __all__ = [
     "build_sps_estimator",
     # jacobian
     "SpectralGapResult",
+    "adversarial_worst_direction",
     "directional_derivative_norm",
     "full_spectral_norm",
     "restricted_operator_norm",
@@ -64,6 +68,8 @@ __all__ = [
     "full_sps_analysis",
     "relative_sps",
     # transformations
+    "AdversarialEmbeddingConfig",
+    "AdversarialEmbeddingFamily",
     "EmbeddingPerturbationConfig",
     "EmbeddingPerturbationFamily",
     "SynonymSubstitutionConfig",

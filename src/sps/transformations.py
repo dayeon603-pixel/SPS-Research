@@ -2,7 +2,7 @@
 Semantic transformation families for SPS computation.
 
 Implements the admissible family T from Definition 0.1 and Assumption A5.
-Two concrete families:
+Three concrete families:
 
   - EmbeddingPerturbationFamily (T_emb):
       Continuous perturbation in embedding space along synonym-derived semantic
@@ -12,6 +12,12 @@ Two concrete families:
   - SynonymSubstitutionFamily (T_syn):
       Discrete token-level replacement via WordNet synonyms.  Not differentiable,
       but the resulting embedding shift defines a valid c(T, x).
+
+  - AdversarialEmbeddingFamily (T_adv):
+      Worst-case semantic perturbation along the A_x direction that maximizes
+      ||Jf(x) v||.  Gives an adversarial upper bound on SPS: the hardest
+      semantically-constrained perturbation.  Requires a forward function for
+      JVP computation.
 
 Both expose a unified `.sample(embeddings, input_ids, epsilon)` interface that
 returns (perturbed_embeddings, magnitudes) for use in the sensitivity estimator.
@@ -25,7 +31,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 import torch
 import torch.nn as nn
@@ -430,6 +436,122 @@ class SynonymSubstitutionFamily(TransformationFamily):
         d_norm = normalize_directions(delta.flatten(start_dim=1)).view_as(delta)
         all_dirs.append(d_norm.unsqueeze(1))
         return torch.cat(all_dirs, dim=1)                          # (B, 1, seq_len, h)
+
+
+# ---------------------------------------------------------------------------
+# T_adv: Adversarial semantic perturbation (worst-case within A_x)
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class AdversarialEmbeddingConfig:
+    """Configuration for the T_adv adversarial family."""
+
+    n_directions: int = 8
+    """Number of semantic directions to search over per input."""
+
+    use_synonym_directions: bool = True
+    """If True, build A_x from synonym differences (same as T_emb).
+    If False, use random orthogonal directions (ablation)."""
+
+    projection_noise_scale: float = 0.02
+    """Noise added before normalization to avoid degenerate directions."""
+
+
+class AdversarialEmbeddingFamily(TransformationFamily):
+    """
+    T_adv: Worst-case semantic perturbation within A_x.
+
+    For each input x, finds the direction v* in A_x that maximizes ||Jf(x) v*||
+    (the directional derivative norm), then perturbs along v*.  This provides an
+    adversarial upper bound on sensitivity: SPS^(T_adv)(f) <= SPS^(T_arb)(f),
+    but SPS^(T_adv)(f) >= SPS^(T_emb)(f) (in expectation, since T_adv is the
+    worst case over the same direction set that T_emb samples uniformly from).
+
+    The ratio SPS^(T_adv) / SPS^(T_emb) quantifies how close the random synonym
+    direction sampling in T_emb is to the worst case — a ratio near 1 means random
+    directions are already near-adversarial; a large ratio means the benchmark
+    understates worst-case semantic vulnerability.
+
+    Args:
+        forward_fn:       f: (B, seq, h) -> (B, d). Used for JVP computation.
+        embedding_layer:  The model's token embedding layer.
+        synonym_map:      Dict[token_id, List[synonym_token_id]]. Can be empty.
+        config:           AdversarialEmbeddingConfig.
+    """
+
+    def __init__(
+        self,
+        forward_fn: Callable[[torch.Tensor], torch.Tensor],
+        embedding_layer: nn.Embedding,
+        synonym_map: Optional[dict[int, list[int]]] = None,
+        config: Optional[AdversarialEmbeddingConfig] = None,
+    ) -> None:
+        self.forward_fn = forward_fn
+        self.embedding_layer = embedding_layer
+        self.synonym_map = synonym_map or {}
+        self.config = config or AdversarialEmbeddingConfig()
+
+        # Reuse T_emb direction logic via delegation
+        emb_cfg = EmbeddingPerturbationConfig(
+            n_directions=self.config.n_directions,
+            use_synonym_directions=self.config.use_synonym_directions,
+            projection_noise_scale=self.config.projection_noise_scale,
+        )
+        self._t_emb = EmbeddingPerturbationFamily(
+            embedding_layer=embedding_layer,
+            synonym_map=synonym_map,
+            config=emb_cfg,
+        )
+
+    def semantic_directions(
+        self,
+        embeddings: torch.Tensor,
+        input_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        """Delegate to T_emb — same admissible direction set A_x."""
+        return self._t_emb.semantic_directions(embeddings, input_ids)
+
+    def sample(
+        self,
+        embeddings: torch.Tensor,
+        input_ids: torch.Tensor,
+        epsilon: float,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Perturb along the worst-case semantic direction v* = argmax_v ||Jf(x) v||.
+
+        Args:
+            embeddings:  (B, seq_len, hidden_dim).
+            input_ids:   (B, seq_len).
+            epsilon:     Perturbation radius.
+
+        Returns:
+            perturbed:   (B, seq_len, hidden_dim).
+            magnitudes:  (B,) — perturbation magnitudes c(T_adv, x).
+        """
+        # Late import to avoid circular dependency at module load time
+        from sps.jacobian import adversarial_worst_direction
+
+        device = embeddings.device
+        B = embeddings.size(0)
+
+        # Compute A_x directions: (B, K, seq, h)
+        directions = self.semantic_directions(embeddings, input_ids)
+
+        # Find worst-case direction per sample: (B, seq, h)
+        x = embeddings.detach().requires_grad_(True)
+        with torch.enable_grad():
+            v_star = adversarial_worst_direction(self.forward_fn, x, directions)
+
+        # Re-normalize (JVP preserves direction but not unit norm guarantee)
+        v_star = normalize_directions(v_star.detach().flatten(start_dim=1)).view_as(embeddings)
+
+        # Scale: alpha ~ Uniform(0, epsilon]
+        alpha = torch.empty(B, device=device).uniform_(0.0, epsilon)
+        perturbed = embeddings + alpha.view(B, 1, 1) * v_star
+
+        magnitudes = (perturbed - embeddings).flatten(start_dim=1).norm(dim=1)
+        return perturbed, magnitudes
 
 
 # ---------------------------------------------------------------------------

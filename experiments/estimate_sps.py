@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
+import random
 import sys
 from pathlib import Path
 
@@ -35,6 +37,8 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from sps import (
+    AdversarialEmbeddingConfig,
+    AdversarialEmbeddingFamily,
     EmbeddingPerturbationConfig,
     EmbeddingPerturbationFamily,
     SPSConfig,
@@ -133,6 +137,130 @@ def prepare_batches(
 # Results table
 # ---------------------------------------------------------------------------
 
+def bootstrap_ci(
+    values: list[float],
+    n_boot: int = 1000,
+    alpha: float = 0.05,
+    seed: int = 42,
+) -> tuple[float, float, float]:
+    """
+    Bootstrap 95% CI for the mean of `values`.
+
+    Returns:
+        (mean, lower_bound, upper_bound)
+    """
+    rng = random.Random(seed)
+    n = len(values)
+    if n == 0:
+        return 0.0, 0.0, 0.0
+    boot_means = sorted(
+        sum(rng.choices(values, k=n)) / n for _ in range(n_boot)
+    )
+    lo = int((alpha / 2) * n_boot)
+    hi = int((1 - alpha / 2) * n_boot)
+    return (
+        round(sum(values) / n, 6),
+        round(boot_means[lo], 6),
+        round(boot_means[hi], 6),
+    )
+
+
+def delta_method_rsps_ci(
+    emb_mean_s: float,
+    emb_std_s: float,
+    emb_n: int,
+    arb_mean_s: float,
+    arb_std_s: float,
+    arb_n: int,
+    alpha: float = 0.05,
+) -> tuple[float, float, float]:
+    """
+    Delta-method 95% CI for rSPS = SPS(T_emb) / SPS(T_arb).
+
+    Since SPS = exp(-mean_sensitivity), we have:
+        log(rSPS) = mean_s_arb - mean_s_emb
+
+    Var(log(rSPS)) ≈ std_s_emb^2 / n_emb + std_s_arb^2 / n_arb   (independence)
+    SE(log(rSPS)) = sqrt(Var)
+
+    95% CI for rSPS: exp(log(rSPS) ± z * SE)
+
+    Returns:
+        (rsps_point, rsps_lo, rsps_hi)
+    """
+    import math
+
+    # z-score for two-sided CI: 1.96 for 95%, 2.576 for 99%
+    z = 1.96 if abs(alpha - 0.05) < 1e-9 else (2.576 if abs(alpha - 0.01) < 1e-9 else 1.645)
+    log_rsps = arb_mean_s - emb_mean_s
+    var_log = (emb_std_s ** 2) / max(emb_n, 1) + (arb_std_s ** 2) / max(arb_n, 1)
+    se_log = math.sqrt(var_log)
+    rsps_point = math.exp(log_rsps)
+    rsps_lo = math.exp(log_rsps - z * se_log)
+    rsps_hi = math.exp(log_rsps + z * se_log)
+    return round(rsps_point, 6), round(rsps_lo, 6), round(rsps_hi, 6)
+
+
+def compute_all_spectral_gaps(
+    model,
+    batches: list[dict],
+    t_emb,
+    device: str,
+) -> list[float]:
+    """
+    Compute the normalized spectral gap (Definition 5) for every sample
+    across all batches. Returns a flat list of per-sample gap values.
+    """
+    try:
+        from torch.nn.attention import SDPBackend, sdpa_kernel as _sdpa_kernel
+        def _make_model_fn(mask):
+            def _fn(inputs_embeds: torch.Tensor) -> torch.Tensor:
+                with _sdpa_kernel(SDPBackend.MATH):
+                    out = model(inputs_embeds=inputs_embeds, attention_mask=mask)
+                return out.last_hidden_state[:, 0, :]
+            return _fn
+    except (ImportError, AttributeError):
+        def _make_model_fn(mask):
+            def _fn(inputs_embeds: torch.Tensor) -> torch.Tensor:
+                out = model(inputs_embeds=inputs_embeds, attention_mask=mask)
+                return out.last_hidden_state[:, 0, :]
+            return _fn
+
+    per_sample_gaps: list[float] = []
+    for batch in batches:
+        emb = batch["embeddings"].to(device)
+        ids = batch["input_ids"].to(device)
+        mask = batch["attention_mask"].to(device)
+        try:
+            directions = t_emb.semantic_directions(emb, ids)
+            fn = _make_model_fn(mask)
+            result = spectral_gap(fn, emb, directions, n_probe_full=16)
+            per_sample_gaps.extend(result.normalized_gap.tolist())
+        except Exception as e:
+            logger.debug("Spectral gap failed on batch: %s", e)
+    return per_sample_gaps
+
+
+def loo_spectral_gap(per_sample_gaps: list[float]) -> dict:
+    """
+    Leave-one-out stability for the mean spectral gap.
+    Returns min/max of LOO means and whether the estimate is stable.
+    """
+    n = len(per_sample_gaps)
+    if n < 3:
+        return {"stable": False, "n": n}
+    total = sum(per_sample_gaps)
+    loo_means = [(total - g) / (n - 1) for g in per_sample_gaps]
+    return {
+        "n": n,
+        "mean": round(total / n, 6),
+        "loo_min": round(min(loo_means), 6),
+        "loo_max": round(max(loo_means), 6),
+        "loo_range": round(max(loo_means) - min(loo_means), 6),
+        "stable": (max(loo_means) - min(loo_means)) < 0.05,
+    }
+
+
 def print_results_table(rows: list[dict]) -> None:
     col_w = {"Family": 10, "SPS": 8, "MeanSens": 10, "StdSens": 9, "rSPS": 8, "GapMean": 9}
     header = "  ".join(k.ljust(v) for k, v in col_w.items())
@@ -168,6 +296,12 @@ def parse_args() -> argparse.Namespace:
                    help="Skip layer-wise SPS computation (faster).")
     p.add_argument("--skip-wordnet", action="store_true",
                    help="Skip WordNet synonym map (use random directions for T_emb).")
+    p.add_argument("--skip-gap-loo", action="store_true",
+                   help="Skip spectral gap LOO stability and bootstrap CI (faster).")
+    p.add_argument("--skip-adversarial", action="store_true",
+                   help="Skip adversarial SPS (T_adv) worst-case upper bound (faster).")
+    p.add_argument("--n-boot", type=int, default=1000,
+                   help="Bootstrap resamples for spectral gap CI (default: 1000).")
     return p.parse_args()
 
 
@@ -261,8 +395,68 @@ def main() -> None:
     # Arbitrary perturbation baseline  (Definition 8 denominator)
     # ------------------------------------------------------------------
     logger.info("Estimating SPS under T_arb (arbitrary perturbations) ...")
-    arb_sps = estimate_arbitrary_sps(model, iter(batches), config)
+    arb_result = estimate_arbitrary_sps(model, iter(batches), config, return_full=True)
+    arb_sps = arb_result["sps"]
     rsps = relative_sps(core["sps"], arb_sps)
+
+    # Delta-method 95% CI for rSPS (log-space, then back-transform)
+    rsps_ci: tuple[float, float, float] | None = None
+    try:
+        rsps_ci = delta_method_rsps_ci(
+            emb_mean_s=core["mean_sensitivity"],
+            emb_std_s=core["std_sensitivity"],
+            emb_n=core["n_samples"],
+            arb_mean_s=arb_result["mean_sensitivity"],
+            arb_std_s=arb_result["std_sensitivity"],
+            arb_n=arb_result["n_samples"],
+        )
+    except Exception as _e:
+        logger.warning("rSPS delta-method CI failed: %s", _e)
+
+    # ------------------------------------------------------------------
+    # Adversarial SPS  (T_adv — worst-case within A_x)
+    # ------------------------------------------------------------------
+    adv_sps: float | None = None
+    adv_rsps: float | None = None
+
+    if not args.skip_adversarial:
+        logger.info("Estimating adversarial SPS (T_adv, worst-case semantic direction) ...")
+        try:
+            batch0_adv = batches[0]
+            emb0_adv = batch0_adv["embeddings"].to(args.device)
+            mask0_adv = batch0_adv["attention_mask"].to(args.device)
+
+            # Build model forward function (same SDPA workaround as spectral gap)
+            try:
+                from torch.nn.attention import SDPBackend, sdpa_kernel as _sdpa_kernel_adv
+                def _adv_fn(inputs_embeds: torch.Tensor) -> torch.Tensor:
+                    with _sdpa_kernel_adv(SDPBackend.MATH):
+                        out = model(inputs_embeds=inputs_embeds, attention_mask=mask0_adv)
+                    return out.last_hidden_state[:, 0, :]
+            except (ImportError, AttributeError):
+                def _adv_fn(inputs_embeds: torch.Tensor) -> torch.Tensor:  # type: ignore[misc]
+                    out = model(inputs_embeds=inputs_embeds, attention_mask=mask0_adv)
+                    return out.last_hidden_state[:, 0, :]
+
+            t_adv = AdversarialEmbeddingFamily(
+                forward_fn=_adv_fn,
+                embedding_layer=model.embeddings.word_embeddings,
+                synonym_map=getattr(t_emb, "synonym_map", {}),
+                config=AdversarialEmbeddingConfig(
+                    n_directions=args.n_directions,
+                    use_synonym_directions=not args.skip_wordnet,
+                ),
+            )
+            adv_estimator = build_sps_estimator(model, t_adv, config)
+            adv_core = adv_estimator.estimate(iter(batches))
+            adv_sps = adv_core["sps"]
+            adv_rsps = relative_sps(adv_sps, arb_sps)
+            logger.info(
+                "Adversarial SPS: %.4f  rSPS_adv=%.4f  (vs T_emb SPS=%.4f)",
+                adv_sps, adv_rsps, core["sps"],
+            )
+        except Exception as e:
+            logger.warning("Adversarial SPS failed: %s", e)
 
     # ------------------------------------------------------------------
     # Spectral gap  (Definition 5)
@@ -297,6 +491,28 @@ def main() -> None:
         logger.info("Mean spectral gap: %.4f", gap_mean)
     except Exception as e:
         logger.warning("Spectral gap computation failed: %s", e)
+
+    # ------------------------------------------------------------------
+    # Spectral gap LOO + bootstrap CI  (all batches)
+    # ------------------------------------------------------------------
+    all_gaps: list[float] = []
+    gap_ci: tuple[float, float, float] | None = None
+    gap_loo: dict | None = None
+
+    if not args.skip_gap_loo:
+        logger.info("Computing spectral gap LOO stability and bootstrap CI (all batches) ...")
+        try:
+            all_gaps = compute_all_spectral_gaps(model, batches, t_emb, args.device)
+            if all_gaps:
+                gap_ci = bootstrap_ci(all_gaps, n_boot=args.n_boot, seed=args.seed)
+                gap_loo = loo_spectral_gap(all_gaps)
+                logger.info(
+                    "Gap LOO: mean=%.4f, loo_range=[%.4f, %.4f], stable=%s",
+                    gap_loo["mean"], gap_loo["loo_min"], gap_loo["loo_max"],
+                    gap_loo["stable"],
+                )
+        except Exception as e:
+            logger.warning("Spectral gap LOO/bootstrap failed: %s", e)
 
     # ------------------------------------------------------------------
     # Layer-wise SPS  (Definition 7)
@@ -337,10 +553,44 @@ def main() -> None:
             "GapMean": "—",
         },
     ]
+    if adv_sps is not None:
+        rows.insert(1, {
+            "Family": "T_adv",
+            "SPS": f"{adv_sps:.4f}",
+            "MeanSens": "—",
+            "StdSens": "—",
+            "rSPS": f"{adv_rsps:.4f}",
+            "GapMean": "—",
+        })
     print_results_table(rows)
+
+    # Adversarial SPS interpretation
+    if adv_sps is not None:
+        adv_ratio = adv_sps / max(core["sps"], 1e-12)
+        print(f"\n  Adversarial SPS Analysis (T_adv — worst-case within A_x):")
+        print(f"    SPS(T_emb) = {core['sps']:.4f}  |  SPS(T_adv) = {adv_sps:.4f}  |  ratio = {adv_ratio:.3f}")
+        if adv_ratio < 1.1:
+            print("    → Random synonym directions are near-adversarial (ratio < 1.1).")
+            print("      T_emb already probes near the worst-case semantic sensitivity.")
+        elif adv_ratio < 2.0:
+            print(f"    → Moderate adversarial gap ({adv_ratio:.2f}x). T_emb underestimates worst-case")
+            print("      sensitivity by this factor.")
+        else:
+            print(f"    → Large adversarial gap ({adv_ratio:.2f}x). Random synonym directions miss")
+            print("      the worst-case; adversarial perturbations are substantially harder.")
 
     # rSPS interpretation (compare with tolerance to avoid float display/logic mismatch)
     _tol = 5e-4
+    if rsps_ci is not None:
+        _, rci_lo, rci_hi = rsps_ci
+        ci_str = f"  95% CI [{rci_lo:.4f}, {rci_hi:.4f}] (delta method, log-space)"
+        excludes_one = (rci_hi < 1.0) or (rci_lo > 1.0)
+        ci_interp = "  → CI excludes 1 — departure from generic smoothness is significant." if excludes_one else \
+                    "  → CI includes 1 — cannot rule out rSPS ≈ 1 at this sample size."
+    else:
+        ci_str = ""
+        ci_interp = ""
+
     if rsps > 1.0 + _tol:
         print(f"  rSPS = {rsps:.4f} > 1 — model is MORE stable to semantic perturbations")
         print("  than arbitrary noise of the same magnitude. (Desired regime.)")
@@ -349,19 +599,33 @@ def main() -> None:
         print("  This is a pathological failure mode (Definition 8).")
     else:
         print(f"  rSPS ≈ 1 ({rsps:.4f}) — semantic stability indistinguishable from generic smoothness.")
+    if ci_str:
+        print(ci_str)
+    if ci_interp:
+        print(ci_interp)
 
     # Spectral gap
     if gap_result is not None:
         print(f"\n  Spectral Gap Analysis (Definition 5, Corollary 1):")
         print(f"    Mean restricted operator norm ||Jf||_{{A_x}} : {gap_result.mean_restricted_norm:.4f}")
         print(f"    Mean full spectral norm sigma_max(Jf)        : {gap_result.mean_full_norm:.4f}")
-        print(f"    Mean normalized gap gamma-bar                : {gap_result.mean_gap:.4f}")
+        print(f"    Mean normalized gap gamma-bar (batch 0)      : {gap_result.mean_gap:.4f}")
         if gap_result.mean_gap > 0.3:
             print("    → Strong semantic direction separation. Model is NOT maximally sensitive")
             print("      along semantic directions. (gamma-bar >> 0)")
         else:
             print("    → Weak semantic direction separation. Semantic directions are near")
             print("      worst-case sensitivity directions. (gamma-bar ≈ 0)")
+
+    if gap_ci is not None:
+        mean_g, lo_g, hi_g = gap_ci
+        print(f"\n  Spectral Gap — All Batches (n={len(all_gaps)} samples):")
+        print(f"    Mean gamma-bar          : {mean_g:.4f}")
+        print(f"    Bootstrap 95% CI        : [{lo_g:.4f}, {hi_g:.4f}]  (n_boot={args.n_boot})")
+        if gap_loo:
+            stable_str = "✓ stable" if gap_loo["stable"] else "✗ unstable (>0.05 range)"
+            print(f"    LOO stability range     : [{gap_loo['loo_min']:.4f}, {gap_loo['loo_max']:.4f}]"
+                  f"  (range={gap_loo['loo_range']:.4f})  {stable_str}")
 
     # Layer-wise profile
     if layerwise:
