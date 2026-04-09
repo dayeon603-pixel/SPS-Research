@@ -1,21 +1,173 @@
-MIT License
+Structured Perturbation Stability (SPS) 
 
-Copyright (c) 2026 Dayeon Kang
+Proprietary Research License Version 1.0 
+Copyright (c) [2026] Dayeon Kang. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+---
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. Definitions
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+1.1 “Licensor” means Dayeon Kang, sole creator and owner of the SPS Framework and all associated works.
+
+1.2 “SPS Framework” includes all theoretical constructs, formulations, definitions, metrics, proofs, methodologies, architectures, abstractions, representations, and conceptual systems related to Structured Perturbation Stability.
+
+1.3 “Work” means all materials associated with the SPS Framework, including but not limited to source code, equations, symbolic expressions, derivations, documentation, diagrams, datasets, experiments, and implementations.
+
+1.4 “Derivative Work” includes ANY work that is:
+(a) directly based on the Work;
+(b) conceptually derived from the SPS Framework;
+(c) structurally, mathematically, or functionally similar;
+(d) created after exposure to the Work and reasonably influenced by it;
+(e) a reimplementation, variation, simplification, extension, or generalization.
+
+1.5 “User” means any individual or entity accessing or interacting with the Work.
+
+---
+
+2. Nature of License
+
+2.1 This Work is NOT open source.
+
+2.2 The Work is provided strictly under a **view-only, non-usable, non-replicable license**.
+
+2.3 The Licensor retains ALL rights not explicitly granted.
+
+---
+
+3. Limited Permission
+
+3.1 The User is granted a limited, revocable, non-exclusive right to:
+
+* view the Work
+* read the Work
+* privately study the Work
+
+3.2 This permission is strictly:
+
+* non-commercial
+* non-operational
+* non-implementational
+
+---
+
+4. Absolute Restrictions
+
+The User SHALL NOT:
+
+4.1 Copy, reproduce, distribute, or store the Work (in whole or part);
+
+4.2 Implement or reimplement ANY part of the SPS Framework;
+
+4.3 Create ANY Derivative Work;
+
+4.4 Use the Work to generate ideas, structures, or frameworks that are similar;
+
+4.5 Use the Work in ANY research, paper, or publication;
+
+4.6 Use the Work in ANY machine learning system, including:
+
+* training
+* fine-tuning
+* benchmarking
+* evaluation
+* architecture design
+
+4.7 Extract, infer, or reconstruct underlying ideas, logic, or structure;
+
+4.8 Develop ANY competing or similar system, whether directly or indirectly;
+
+4.9 Share screenshots, summaries, extracted formulas, or paraphrased concepts;
+
+4.10 Use the Work for ANY institutional, academic, or corporate advantage;
+
+4.11 Claim independent development if exposure to the Work has occurred.
+
+---
+
+5. Anti-Extraction Clause (Critical)
+
+5.1 Any knowledge gained from exposure to the Work shall be considered protected.
+
+5.2 The User is prohibited from:
+
+* reconstructing ideas from memory
+* applying learned structure
+* recreating similar methodologies
+
+5.3 Any similar work developed within 12 months of exposure shall be presumed to be derived from the SPS Framework.
+
+---
+
+6. AI / Model Prohibition
+
+6.1 The Work may NOT be used in ANY AI system.
+
+6.2 This includes:
+
+* training data
+* evaluation metrics
+* benchmarking frameworks
+* architectural inspiration
+
+6.3 Use of the Work in ANY automated system constitutes a violation.
+
+---
+
+7. Ownership
+
+7.1 All rights remain exclusively with the Licensor.
+
+7.2 No license is granted beyond viewing.
+
+7.3 No implied rights exist.
+
+---
+
+8. Enforcement and Damages
+
+8.1 Any violation constitutes:
+
+* copyright infringement
+* breach of license
+* misappropriation of proprietary research
+
+8.2 The Licensor may pursue:
+
+* injunctive relief (immediate stop)
+* monetary damages
+* legal costs
+
+8.3 Liquidated damages:
+Minimum USD $100,000 per violation OR full economic benefit gained, whichever is greater.
+
+---
+
+9. Termination
+
+9.1 This License terminates immediately upon breach.
+
+9.2 All access and materials must be destroyed.
+
+---
+
+10. No Warranty
+
+10.1 Provided “as is” without warranties.
+
+---
+
+11. Jurisdiction
+
+11.1 Governed by laws of the Republic of Korea.
+
+11.2 Licensor may enforce in ANY jurisdiction.
+
+---
+
+12. Agreement
+
+12.1 Accessing the Work = acceptance of this License.
+
+---
+
+END OF LICENSE
