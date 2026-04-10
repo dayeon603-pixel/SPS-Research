@@ -26,8 +26,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import math
-import random
 import sys
 from pathlib import Path
 
@@ -43,10 +41,13 @@ from sps import (
     EmbeddingPerturbationFamily,
     SPSConfig,
     SPSReport,
+    bootstrap_ci,
     build_sps_estimator,
     build_wordnet_synonym_map,
+    delta_method_rsps_ci,
     estimate_arbitrary_sps,
     full_sps_analysis,
+    loo_spectral_gap,
     relative_sps,
     set_seed,
     spectral_gap,
@@ -137,70 +138,6 @@ def prepare_batches(
 # Results table
 # ---------------------------------------------------------------------------
 
-def bootstrap_ci(
-    values: list[float],
-    n_boot: int = 1000,
-    alpha: float = 0.05,
-    seed: int = 42,
-) -> tuple[float, float, float]:
-    """
-    Bootstrap 95% CI for the mean of `values`.
-
-    Returns:
-        (mean, lower_bound, upper_bound)
-    """
-    rng = random.Random(seed)
-    n = len(values)
-    if n == 0:
-        return 0.0, 0.0, 0.0
-    boot_means = sorted(
-        sum(rng.choices(values, k=n)) / n for _ in range(n_boot)
-    )
-    lo = int((alpha / 2) * n_boot)
-    hi = int((1 - alpha / 2) * n_boot)
-    return (
-        round(sum(values) / n, 6),
-        round(boot_means[lo], 6),
-        round(boot_means[hi], 6),
-    )
-
-
-def delta_method_rsps_ci(
-    emb_mean_s: float,
-    emb_std_s: float,
-    emb_n: int,
-    arb_mean_s: float,
-    arb_std_s: float,
-    arb_n: int,
-    alpha: float = 0.05,
-) -> tuple[float, float, float]:
-    """
-    Delta-method 95% CI for rSPS = SPS(T_emb) / SPS(T_arb).
-
-    Since SPS = exp(-mean_sensitivity), we have:
-        log(rSPS) = mean_s_arb - mean_s_emb
-
-    Var(log(rSPS)) ≈ std_s_emb^2 / n_emb + std_s_arb^2 / n_arb   (independence)
-    SE(log(rSPS)) = sqrt(Var)
-
-    95% CI for rSPS: exp(log(rSPS) ± z * SE)
-
-    Returns:
-        (rsps_point, rsps_lo, rsps_hi)
-    """
-    import math
-
-    # z-score for two-sided CI: 1.96 for 95%, 2.576 for 99%
-    z = 1.96 if abs(alpha - 0.05) < 1e-9 else (2.576 if abs(alpha - 0.01) < 1e-9 else 1.645)
-    log_rsps = arb_mean_s - emb_mean_s
-    var_log = (emb_std_s ** 2) / max(emb_n, 1) + (arb_std_s ** 2) / max(arb_n, 1)
-    se_log = math.sqrt(var_log)
-    rsps_point = math.exp(log_rsps)
-    rsps_lo = math.exp(log_rsps - z * se_log)
-    rsps_hi = math.exp(log_rsps + z * se_log)
-    return round(rsps_point, 6), round(rsps_lo, 6), round(rsps_hi, 6)
-
-
 def compute_all_spectral_gaps(
     model,
     batches: list[dict],
@@ -239,26 +176,6 @@ def compute_all_spectral_gaps(
         except Exception as e:
             logger.debug("Spectral gap failed on batch: %s", e)
     return per_sample_gaps
-
-
-def loo_spectral_gap(per_sample_gaps: list[float]) -> dict:
-    """
-    Leave-one-out stability for the mean spectral gap.
-    Returns min/max of LOO means and whether the estimate is stable.
-    """
-    n = len(per_sample_gaps)
-    if n < 3:
-        return {"stable": False, "n": n}
-    total = sum(per_sample_gaps)
-    loo_means = [(total - g) / (n - 1) for g in per_sample_gaps]
-    return {
-        "n": n,
-        "mean": round(total / n, 6),
-        "loo_min": round(min(loo_means), 6),
-        "loo_max": round(max(loo_means), 6),
-        "loo_range": round(max(loo_means) - min(loo_means), 6),
-        "stable": (max(loo_means) - min(loo_means)) < 0.05,
-    }
 
 
 def print_results_table(rows: list[dict]) -> None:
