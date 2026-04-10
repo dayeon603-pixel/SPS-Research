@@ -19,6 +19,7 @@ import torch.nn as nn
 
 from sps.core import SPSConfig, SPSEstimator, StructuredSensitivityEstimator, build_sps_estimator
 from sps.jacobian import SpectralGapResult, spectral_gap
+from sps.stats import bootstrap_ci, delta_method_rsps_ci
 from sps.transformations import EmbeddingPerturbationFamily, TransformationFamily
 from sps.utils import get_divergence_fn
 
@@ -54,6 +55,8 @@ class SPSReport:
     spectral_gap_result: Optional[SpectralGapResult] = None
     layerwise_profile: Optional[list[float]] = None
     config: Optional[SPSConfig] = None
+    gap_ci: Optional[tuple[float, float, float]] = None   # (point, lo, hi) bootstrap CI for spectral gap
+    rsps_ci: Optional[tuple[float, float, float]] = None  # (point, lo, hi) delta-method CI for rSPS
 
     def summary(self) -> str:
         """Return a formatted one-page summary of results."""
@@ -74,8 +77,14 @@ class SPSReport:
                 else "< 1 (FAILURE: higher semantic sensitivity)"
             )
             lines.append(f"  rSPS (Def 8)        : {self.relative_sps:.4f}  {interpretation}")
+            if self.rsps_ci is not None:
+                _, lo, hi = self.rsps_ci
+                lines.append(f"  rSPS 95% CI (δ-meth): [{lo:.4f}, {hi:.4f}]")
         if self.spectral_gap_mean is not None:
             lines.append(f"  Spectral Gap gamma-bar : {self.spectral_gap_mean:.4f}")
+            if self.gap_ci is not None:
+                _, lo, hi = self.gap_ci
+                lines.append(f"  Gap 95% CI (boot)   : [{lo:.4f}, {hi:.4f}]")
         if self.layerwise_profile is not None:
             profile_str = "  ".join(f"L{i}:{v:.3f}" for i, v in enumerate(self.layerwise_profile))
             lines.append(f"  Layerwise Profile   : {profile_str}")
@@ -380,12 +389,22 @@ def full_sps_analysis(
         gap_result = spectral_gap(_fn, emb, directions)
         report.spectral_gap_mean = gap_result.mean_gap
         report.spectral_gap_result = gap_result
+        per_sample_gaps = gap_result.normalized_gap.tolist()
+        report.gap_ci = bootstrap_ci(per_sample_gaps)
 
     # --- Relative SPS (Definition 8) ---
     if compute_relative:
         logger.info("Computing relative SPS (arbitrary perturbation baseline) ...")
-        arb_sps = estimate_arbitrary_sps(model, iter(batches), config)
-        report.relative_sps = relative_sps(report.sps, arb_sps)
+        arb_full = estimate_arbitrary_sps(model, iter(batches), config, return_full=True)
+        report.relative_sps = relative_sps(report.sps, arb_full["sps"])
+        report.rsps_ci = delta_method_rsps_ci(
+            emb_mean_s=core_result["mean_sensitivity"],
+            emb_std_s=core_result["std_sensitivity"],
+            emb_n=core_result["n_samples"],
+            arb_mean_s=arb_full["mean_sensitivity"],
+            arb_std_s=arb_full["std_sensitivity"],
+            arb_n=arb_full["n_samples"],
+        )
 
     # --- Layer-wise SPS (Definition 7) ---
     if compute_layerwise:
