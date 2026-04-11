@@ -39,6 +39,11 @@ from sps.transformations import (
     TransformationFamily,
     build_wordnet_synonym_map,
 )
+from sps.stats import (
+    bootstrap_ci,
+    delta_method_rsps_ci,
+    loo_spectral_gap,
+)
 from sps.utils import (
     cosine_divergence,
     get_divergence_fn,
@@ -76,6 +81,10 @@ __all__ = [
     "SynonymSubstitutionFamily",
     "TransformationFamily",
     "build_wordnet_synonym_map",
+    # stats
+    "bootstrap_ci",
+    "delta_method_rsps_ci",
+    "loo_spectral_gap",
     # utils
     "cosine_divergence",
     "get_divergence_fn",
