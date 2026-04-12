@@ -8,9 +8,12 @@ in Transformer Architectures.
 from __future__ import annotations
 
 from sps.core import (
+    AdversarialSPSEstimator,
+    AdversarialSPSReport,
     SPSConfig,
     SPSEstimator,
     StructuredSensitivityEstimator,
+    build_adversarial_sps_estimator,
     build_sps_estimator,
 )
 from sps.jacobian import (
@@ -54,9 +57,12 @@ from sps.utils import (
 
 __all__ = [
     # core
+    "AdversarialSPSEstimator",
+    "AdversarialSPSReport",
     "SPSConfig",
     "SPSEstimator",
     "StructuredSensitivityEstimator",
+    "build_adversarial_sps_estimator",
     "build_sps_estimator",
     # jacobian
     "SpectralGapResult",
