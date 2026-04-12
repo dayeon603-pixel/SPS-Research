@@ -234,7 +234,8 @@ class TestSPSEstimator:
         estimator = build_sps_estimator(model, t_emb, config)
         result = estimator.estimate(iter(batches))
 
-        assert math.isclose(result["sens_ci"][0], result["mean_sensitivity"], rel_tol=1e-5), \
+        # bootstrap_ci rounds to 6 decimal places; use abs_tol accordingly
+        assert math.isclose(result["sens_ci"][0], result["mean_sensitivity"], abs_tol=1e-5), \
             f"CI point={result['sens_ci'][0]} != mean={result['mean_sensitivity']}"
 
     def test_sps_loo_keys(self, t_emb, embedding_layer):

@@ -10,10 +10,13 @@ from __future__ import annotations
 from sps.core import (
     AdversarialSPSEstimator,
     AdversarialSPSReport,
+    RelativeSPSEstimator,
+    RelativeSPSReport,
     SPSConfig,
     SPSEstimator,
     StructuredSensitivityEstimator,
     build_adversarial_sps_estimator,
+    build_relative_sps_estimator,
     build_sps_estimator,
 )
 from sps.jacobian import (
@@ -59,10 +62,13 @@ __all__ = [
     # core
     "AdversarialSPSEstimator",
     "AdversarialSPSReport",
+    "RelativeSPSEstimator",
+    "RelativeSPSReport",
     "SPSConfig",
     "SPSEstimator",
     "StructuredSensitivityEstimator",
     "build_adversarial_sps_estimator",
+    "build_relative_sps_estimator",
     "build_sps_estimator",
     # jacobian
     "SpectralGapResult",
