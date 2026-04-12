@@ -14,8 +14,29 @@ from __future__ import annotations
 import math
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
+
+# ------------------------------------------------------------------
+# Minimal torch mock — lets us import sps.stats (a pure-Python
+# module) without a full torch installation. The mock must be
+# injected before any sps module is imported, since sps/__init__.py
+# imports torch-dependent submodules at package load time.
+# ------------------------------------------------------------------
+if "torch" not in sys.modules:
+    _mock_torch = MagicMock()
+    _mock_torch.Tensor = type("Tensor", (), {})
+    _mock_nn = MagicMock()
+    _mock_nn.Module = object
+    _mock_nn.Embedding = object
+    _mock_nn.ModuleList = list
+    _mock_torch.nn = _mock_nn
+    sys.modules["torch"] = _mock_torch
+    sys.modules["torch.nn"] = _mock_nn
+    sys.modules["torch.nn.functional"] = MagicMock()
+    sys.modules["torch.autograd"] = MagicMock()
+    sys.modules["torch.autograd.functional"] = MagicMock()
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
