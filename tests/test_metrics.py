@@ -36,6 +36,12 @@ if "torch" not in sys.modules:
     sys.modules["torch.autograd"] = MagicMock()
     sys.modules["torch.autograd.functional"] = MagicMock()
 
+if "numpy" not in sys.modules:
+    _mock_np = MagicMock()
+    _mock_np.bool_ = bool      # pytest uses isinstance(val, np.bool_) internally
+    _mock_np.ndarray = type("ndarray", (), {})
+    sys.modules["numpy"] = _mock_np
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from sps.metrics import SPSReport

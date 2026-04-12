@@ -207,8 +207,66 @@ class TestSPSEstimator:
         estimator = build_sps_estimator(model, t_emb, config)
         result = estimator.estimate(iter(batches))
 
-        assert set(result.keys()) == {"sps", "mean_sensitivity", "std_sensitivity", "n_samples"}
+        assert set(result.keys()) == {
+            "sps", "mean_sensitivity", "std_sensitivity", "n_samples",
+            "sens_ci", "loo",
+        }
         assert result["n_samples"] == BATCH * 3
+
+    def test_sps_ci_valid(self, t_emb, embedding_layer):
+        """Bootstrap CI: 3-tuple (point, lo, hi) with lo <= point <= hi."""
+        batches = self._make_batches(embedding_layer)
+        model = LinearModel(HIDDEN)
+        config = SPSConfig(epsilon=0.1, m_transforms=4, seed=7)
+        estimator = build_sps_estimator(model, t_emb, config)
+        result = estimator.estimate(iter(batches))
+
+        ci = result["sens_ci"]
+        assert len(ci) == 3, f"Expected 3-tuple, got {ci}"
+        point, lo, hi = ci
+        assert lo <= point <= hi, f"CI order violated: lo={lo}, point={point}, hi={hi}"
+
+    def test_sps_ci_point_matches_mean(self, t_emb, embedding_layer):
+        """CI point estimate matches mean_sensitivity (both from same data)."""
+        batches = self._make_batches(embedding_layer)
+        model = LinearModel(HIDDEN)
+        config = SPSConfig(epsilon=0.1, m_transforms=4)
+        estimator = build_sps_estimator(model, t_emb, config)
+        result = estimator.estimate(iter(batches))
+
+        assert math.isclose(result["sens_ci"][0], result["mean_sensitivity"], rel_tol=1e-5), \
+            f"CI point={result['sens_ci'][0]} != mean={result['mean_sensitivity']}"
+
+    def test_sps_loo_keys(self, t_emb, embedding_layer):
+        """LOO dict has expected structure for n >= 3 samples."""
+        batches = self._make_batches(embedding_layer, n_batches=3)  # 12 samples
+        model = LinearModel(HIDDEN)
+        config = SPSConfig(epsilon=0.1, m_transforms=4)
+        estimator = build_sps_estimator(model, t_emb, config)
+        result = estimator.estimate(iter(batches))
+
+        loo = result["loo"]
+        assert "n" in loo
+        assert "mean" in loo
+        assert "loo_min" in loo
+        assert "loo_max" in loo
+        assert "loo_range" in loo
+        assert "stable" in loo
+        assert loo["n"] == BATCH * 3
+
+    def test_sps_loo_stability_constant_model(self, t_emb, embedding_layer):
+        """Constant model (Sens=0 always) → LOO mean=0, loo_range=0, stable=True."""
+        batches = self._make_batches(embedding_layer, n_batches=3)
+        model = ConstantModel(hidden=HIDDEN)
+        config = SPSConfig(epsilon=0.1, m_transforms=8)
+        estimator = build_sps_estimator(model, t_emb, config)
+        result = estimator.estimate(iter(batches))
+
+        loo = result["loo"]
+        assert math.isclose(loo["mean"], 0.0, abs_tol=1e-4), f"Expected mean≈0, got {loo['mean']}"
+        assert math.isclose(loo["loo_range"], 0.0, abs_tol=1e-4), \
+            f"Expected loo_range≈0, got {loo['loo_range']}"
+        assert loo["stable"] is True
 
     def test_family_monotonicity_sps(self, embedding_layer, attention_mask):
         """

@@ -251,9 +251,15 @@ class SPSEstimator:
         import math
         sps_val = math.exp(-mean_s)
 
+        from sps.stats import bootstrap_ci, loo_spectral_gap
+        sens_list = sensitivities.tolist()
+        sens_ci = bootstrap_ci(sens_list, seed=self.config.seed)
+        loo = loo_spectral_gap(sens_list)
+
         logger.info(
-            "SPS estimate: %.4f | mean_sensitivity=%.4f | std=%.4f | n=%d",
+            "SPS estimate: %.4f | mean_sensitivity=%.4f | std=%.4f | n=%d | loo_stable=%s",
             sps_val, mean_s, sensitivities.std().item(), len(sensitivities),
+            loo.get("stable", "N/A"),
         )
 
         return {
@@ -261,6 +267,8 @@ class SPSEstimator:
             "mean_sensitivity": mean_s,
             "std_sensitivity": float(sensitivities.std().item()),
             "n_samples": int(len(sensitivities)),
+            "sens_ci": sens_ci,
+            "loo": loo,
         }
 
     def _get_embeddings(self, input_ids: torch.Tensor) -> torch.Tensor:
